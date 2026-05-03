@@ -1,8 +1,11 @@
 # Swift Shell Directory Structure
 
-The concrete Xcode project has not been created yet. Use this structure when introducing it unless a later task records a better native layout.
+The first native app shell is a Swift Package executable rooted at:
 
-Recommended top-level app shape:
+- `Package.swift`
+- `apps/relaydock/Sources/`
+
+Current app shape:
 
 - `App/` for app entry, scene setup, menu commands, app lifecycle
 - `Shell/` for main window, sidebar/source list, toolbar, status bar
@@ -10,9 +13,12 @@ Recommended top-level app shape:
 - `Features/Registry/`
 - `Features/LogsAndDiagnostics/`
 - `Features/Preferences/`
+- `DesignSystem/` for native style tokens, icons, row components, status indicators
+
+Planned app directories:
+
 - `Platform/` for AppKit adapters, Keychain, LaunchAgent, file panels, notifications
 - `Bridge/` for Swift wrappers around Rust FFI or command boundary
-- `DesignSystem/` for native style tokens, icons, row components, status indicators
 
 Rules:
 
