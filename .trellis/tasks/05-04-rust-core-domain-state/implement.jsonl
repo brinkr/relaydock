@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints and architecture guardrails"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust core ownership and quality rules"}
+{"file": "documents/03-domain-model.md", "reason": "Domain entities to model"}
+{"file": "documents/04-runtime-state-machine.md", "reason": "Runtime state transitions"}
+{"file": "documents/07-port-management-foundation.md", "reason": "Local port conflict and override rules"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Swift/Rust responsibility boundary"}

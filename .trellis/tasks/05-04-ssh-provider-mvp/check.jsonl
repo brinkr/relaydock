@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Review project constraints"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Review provider/process rules"}
+{"file": "documents/06-provider-and-network-scenarios.md", "reason": "Verify provider abstraction"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Verify no custom SSH protocol or terminal scope creep"}

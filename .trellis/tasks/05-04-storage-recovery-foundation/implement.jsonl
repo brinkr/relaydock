@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints and architecture guardrails"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust core storage ownership"}
+{"file": "documents/03-domain-model.md", "reason": "Persisted entities"}
+{"file": "documents/04-runtime-state-machine.md", "reason": "Recovery collection semantics"}
+{"file": "documents/07-port-management-foundation.md", "reason": "Local port override persistence boundary"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "SQLite and Keychain ownership"}

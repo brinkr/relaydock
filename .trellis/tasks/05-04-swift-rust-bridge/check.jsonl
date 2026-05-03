@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Review project constraints"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Review bridge rules"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Verify boundary stays coarse-grained"}

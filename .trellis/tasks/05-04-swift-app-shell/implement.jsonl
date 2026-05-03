@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints and architecture guardrails"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell ownership and quality rules"}
+{"file": "documents/01-product-baseline.md", "reason": "Product scope and page names"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Native shell and page structure"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "SwiftUI/AppKit shell decision"}
+{"file": "documents/11-localport-prototype-reference.md", "reason": "Prototype reference boundaries"}

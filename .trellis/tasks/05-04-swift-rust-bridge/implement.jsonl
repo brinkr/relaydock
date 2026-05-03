@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints and architecture guardrails"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge ownership and quality rules"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift-side expectations"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust-side expectations"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Swift/Rust boundary decision"}

@@ -1,0 +1,31 @@
+{
+  "id": "00-bootstrap-guidelines",
+  "name": "00-bootstrap-guidelines",
+  "title": "Adapt Trellis To RelayDock",
+  "description": "Initialize Trellis and replace generic web scaffold specs with RelayDock Swift shell, Rust core, bridge, and project conventions",
+  "status": "completed",
+  "dev_type": "docs",
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "brink",
+  "assignee": "brink",
+  "createdAt": "2026-05-03",
+  "completedAt": "2026-05-04",
+  "branch": null,
+  "base_branch": null,
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/spec/project/",
+    ".trellis/spec/swift-shell/",
+    ".trellis/spec/rust-core/",
+    ".trellis/spec/bridge/"
+  ],
+  "notes": "First-time setup task created by trellis init and adapted for RelayDock's SwiftUI/AppKit shell plus Rust core architecture",
+  "meta": {}
+}

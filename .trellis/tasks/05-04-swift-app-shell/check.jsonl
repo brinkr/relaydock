@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Review project constraints"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Review native shell rules"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Verify UI structure"}
+{"file": "documents/11-localport-prototype-reference.md", "reason": "Verify prototype was not copied as React structure"}
