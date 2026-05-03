@@ -8,6 +8,7 @@
 - 源码目录：`/Users/workspace/relaydock`
 - Git 仓库名：`relaydock`
 - 默认分支：`main`
+- 正式技术选型：`SwiftUI + AppKit shell + Rust core`
 
 ## 2. 一句话定义
 
@@ -507,12 +508,15 @@ RelayDock 应从一开始就保留对 AI / 自动化友好的设计。
 
 ## 17. 下一阶段建议
 
+正式技术选型已确认，详见 [10-technology-stack-decision.md](/Users/workspace/relaydock/documents/10-technology-stack-decision.md)。
+
 正式开发前，建议按以下顺序推进：
 
 1. 固化正式领域模型
 2. 固化状态机
-3. 确定桌面技术栈
-4. 先做本地配置存储与运行态存储
-5. 先接 SSH provider
-6. 再接 Tailscale provider
-7. 再补导入导出、图标探测、日志增强
+3. 定义 Swift shell 与 Rust core 的边界
+4. 建立最小 Swift/Rust bridge
+5. 先做本地配置存储与运行态存储
+6. 先接 SSH provider
+7. 再接 Tailscale provider
+8. 再补导入导出、图标探测、日志增强

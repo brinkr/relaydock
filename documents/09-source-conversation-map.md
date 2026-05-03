@@ -56,6 +56,9 @@
 
 - 当前工作目录：
   - `/Users/workspace/relaydock`
+- 外部原型参考：
+  - `https://github.com/brinkr/LocalPort`
+  - `/Users/workspace/LocalPort`
 - 作用：
   - 这是从产品回顾切换到真实项目启动的起点
 
@@ -66,6 +69,9 @@
 - 本地端口管理只作为基础能力收进来
 - 明确不做本地项目生命周期管理
 - 已开始落盘项目文档
+- 正式技术选型确认为 `SwiftUI + AppKit shell + Rust core`
+- 明确此前 `Tauri + React + Go` 只作为早期候选方案，不作为当前实现主线
+- 将 LocalPort 明确为 Gemini/React 静态原型参考，只吸收桌面壳层、信息密度和交互语义，不吸收技术栈和组件结构
 
 ## 3. 其它补充来源
 
@@ -90,4 +96,3 @@
 2. 本目录下的专题文档
 3. 会话 A
 4. 会话 B
-

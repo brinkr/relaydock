@@ -15,6 +15,8 @@
 
 产品应采用桌面原生壳层，而不是网页后台布局。
 
+LocalPort 原型可作为壳层、信息密度和交互语义参考，具体吸收边界见 [11-localport-prototype-reference.md](/Users/workspace/relaydock/documents/11-localport-prototype-reference.md)。
+
 已确认元素：
 
 - 红黄绿交通灯
@@ -171,4 +173,3 @@
 - 过重按钮
 - 过强阴影
 - 明显网页化容器层级
-

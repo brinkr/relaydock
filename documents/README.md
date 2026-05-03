@@ -62,3 +62,12 @@
 - [09-source-conversation-map.md](/Users/workspace/relaydock/documents/09-source-conversation-map.md)
   - 本项目关键结论来自哪些 `.codex` 真实对话
   - 每条会话主要贡献了什么
+- [10-technology-stack-decision.md](/Users/workspace/relaydock/documents/10-technology-stack-decision.md)
+  - 正式技术选型：`SwiftUI + AppKit shell + Rust core`
+  - Swift/Rust 边界
+  - 早期候选方案取舍
+  - Trellis / harness 使用约束
+- [11-localport-prototype-reference.md](/Users/workspace/relaydock/documents/11-localport-prototype-reference.md)
+  - LocalPort 原型参考边界
+  - 可吸收的桌面壳层与信息密度
+  - 不应照搬的 React/Web 原型问题
