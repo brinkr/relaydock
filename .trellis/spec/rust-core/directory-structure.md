@@ -1,17 +1,27 @@
 # Rust Core Directory Structure
 
-The concrete Rust crate has not been created yet. Use this layout when adding it:
+The Rust workspace is rooted at the repository root.
 
-- `crates/relaydock-core/` for the reusable domain and runtime library
+Current crate:
+
+- `crates/relaydock-core/` contains the reusable domain and runtime library.
+
+Planned crates:
+
 - `crates/relaydock-ffi/` for C ABI / Swift bridge exports if needed
 - `crates/relaydock-cli/` only when CLI reuse becomes an explicit task
 
-Inside `relaydock-core`, prefer modules around domain ownership:
+Inside `relaydock-core`, use modules around domain ownership.
+
+Current modules:
 
 - `domain`
 - `runtime`
-- `providers`
 - `ports`
+
+Planned modules:
+
+- `providers`
 - `storage`
 - `diagnostics`
 - `import`
