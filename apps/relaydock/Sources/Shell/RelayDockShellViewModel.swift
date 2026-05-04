@@ -219,12 +219,7 @@ final class RelayDockShellViewModel: ObservableObject {
         }
 
         do {
-            let snapshot = try bridgeExecutor.loadRegistrySnapshot()
-            registrySnapshot = snapshot
-            registryError = nil
-            if selectedRegistryHostId == nil || !snapshot.hosts.contains(where: { $0.id == selectedRegistryHostId }) {
-                selectedRegistryHostId = snapshot.selectedHostId
-            }
+            applyRegistrySnapshot(try bridgeExecutor.loadRegistrySnapshot())
         } catch {
             if let bridgeError = error as? BridgeErrorInfo {
                 registryError = bridgeError
@@ -241,6 +236,40 @@ final class RelayDockShellViewModel: ObservableObject {
                 )
             }
         }
+    }
+
+    func saveRegistryHost(_ host: RegistryHostDraft) throws {
+        guard let bridgeExecutor else {
+            throw BridgeErrorInfo(
+                code: .processFailed,
+                summary: "未找到 RelayDock bridge sidecar",
+                detail: "Expected target/debug/relaydock-bridge in the development workspace.",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: "Run cargo build -p relaydock-core --bin relaydock-bridge."
+            )
+        }
+
+        applyRegistrySnapshot(try bridgeExecutor.saveRegistryHost(host))
+    }
+
+    func saveRegistryRule(_ rule: RegistryRuleDraft) throws {
+        guard let bridgeExecutor else {
+            throw BridgeErrorInfo(
+                code: .processFailed,
+                summary: "未找到 RelayDock bridge sidecar",
+                detail: "Expected target/debug/relaydock-bridge in the development workspace.",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: "Run cargo build -p relaydock-core --bin relaydock-bridge."
+            )
+        }
+
+        applyRegistrySnapshot(try bridgeExecutor.saveRegistryRule(rule))
     }
 
     private func performSnapshotAction(
@@ -266,6 +295,22 @@ final class RelayDockShellViewModel: ObservableObject {
     private func applySnapshot(_ snapshot: RunRecoverySnapshotResult) {
         runRecoverySnapshot = snapshot
         runRecoveryError = snapshot.lastAction?.error
+    }
+
+    private func applyRegistrySnapshot(_ snapshot: RegistrySnapshotResult) {
+        registrySnapshot = snapshot
+        registryError = nil
+        if snapshot.hosts.isEmpty {
+            selectedRegistryHostId = nil
+            return
+        }
+
+        if let selectedRegistryHostId,
+           snapshot.hosts.contains(where: { $0.id == selectedRegistryHostId }) {
+            return
+        }
+
+        selectedRegistryHostId = snapshot.selectedHostId
     }
 
     private func applyBridgeFailure(_ error: Error) {

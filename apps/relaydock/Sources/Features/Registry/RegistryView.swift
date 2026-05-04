@@ -4,6 +4,8 @@ struct RegistryView: View {
     let snapshot: RegistrySnapshotResult?
     @Binding var selectedHostId: String?
     let bridgeError: BridgeErrorInfo?
+    let onSaveHost: (RegistryHostDraft) throws -> Void
+    let onSaveRule: (RegistryRuleDraft) throws -> Void
     let onRecoverRule: (String) -> Void
     let onRetryRule: (String) -> Void
     let onStopRule: (String) -> Void
@@ -48,7 +50,11 @@ struct RegistryView: View {
         }
         .background(RelayDockColor.contentBackground)
         .sheet(item: $activeSheet) { sheet in
-            RegistryPlaceholderSheet(sheet: sheet) {
+            RegistrySheetView(
+                sheet: sheet,
+                onSaveHost: onSaveHost,
+                onSaveRule: onSaveRule
+            ) {
                 activeSheet = nil
             }
         }
@@ -227,10 +233,10 @@ private struct RegistryHostDetail: View {
                             onShowSheet(.newRule(host))
                         },
                         onEditMapping: { rule in
-                            onShowSheet(.editMapping(rule))
+                            onShowSheet(.editMapping(host, rule))
                         },
                         onEditRule: { rule in
-                            onShowSheet(.editRule(rule))
+                            onShowSheet(.editRule(host, rule))
                         },
                         onRecoverRule: onRecoverRule,
                         onRetryRule: onRetryRule,
@@ -577,8 +583,8 @@ private enum RegistrySheet: Identifiable {
     case newPreset(RegistryHost)
     case importSSH(RegistryHost)
     case newRule(RegistryHost)
-    case editMapping(RegistryRule)
-    case editRule(RegistryRule)
+    case editMapping(RegistryHost, RegistryRule)
+    case editRule(RegistryHost, RegistryRule)
 
     var id: String {
         switch self {
@@ -592,10 +598,10 @@ private enum RegistrySheet: Identifiable {
             "import-ssh-\(host.id)"
         case let .newRule(host):
             "new-rule-\(host.id)"
-        case let .editMapping(rule):
-            "edit-mapping-\(rule.id)"
-        case let .editRule(rule):
-            "edit-rule-\(rule.id)"
+        case let .editMapping(host, rule):
+            "edit-mapping-\(host.id)-\(rule.id)"
+        case let .editRule(host, rule):
+            "edit-rule-\(host.id)-\(rule.id)"
         }
     }
 
@@ -621,10 +627,10 @@ private enum RegistrySheet: Identifiable {
     var subtitle: String {
         switch self {
         case .newHost:
-            "后续会写入资源登记存储；当前 demo 先固定结构和入口。"
+            "创建第一份保存配置，并建立至少一个 provider target。"
         case let .hostSettings(host), let .newPreset(host), let .importSSH(host), let .newRule(host):
             "\(host.name) · \(host.endpoint)"
-        case let .editMapping(rule), let .editRule(rule):
+        case let .editMapping(_, rule), let .editRule(_, rule):
             "\(rule.serviceName) · \(rule.alias)"
         }
     }
@@ -645,6 +651,54 @@ private enum RegistrySheet: Identifiable {
             "这里会调整端口映射；运行态的临时本地端口覆盖仍从运行页处理。"
         case .editRule:
             "这里会编辑配置规则本身，不直接操作当前运行实例。"
+        }
+    }
+}
+
+private struct RegistrySheetView: View {
+    let sheet: RegistrySheet
+    let onSaveHost: (RegistryHostDraft) throws -> Void
+    let onSaveRule: (RegistryRuleDraft) throws -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        switch sheet {
+        case .newHost:
+            RegistryHostEditorSheet(
+                title: sheet.title,
+                subtitle: sheet.subtitle,
+                initialDraft: .blank,
+                onSave: onSaveHost,
+                onClose: onClose
+            )
+        case let .hostSettings(host):
+            RegistryHostEditorSheet(
+                title: sheet.title,
+                subtitle: sheet.subtitle,
+                initialDraft: host.hostDraft,
+                onSave: onSaveHost,
+                onClose: onClose
+            )
+        case let .newRule(host):
+            RegistryRuleEditorSheet(
+                title: sheet.title,
+                subtitle: sheet.subtitle,
+                host: host,
+                initialDraft: .blank(hostId: host.id, providerTargetId: host.providerTargets.first?.id),
+                onSave: onSaveRule,
+                onClose: onClose
+            )
+        case let .editMapping(host, rule), let .editRule(host, rule):
+            RegistryRuleEditorSheet(
+                title: sheet.title,
+                subtitle: sheet.subtitle,
+                host: host,
+                initialDraft: rule.ruleDraft(hostId: host.id),
+                onSave: onSaveRule,
+                onClose: onClose
+            )
+        case .newPreset, .importSSH:
+            RegistryPlaceholderSheet(sheet: sheet, onClose: onClose)
         }
     }
 }
@@ -680,6 +734,532 @@ private struct RegistryPlaceholderSheet: View {
     }
 }
 
+private struct RegistryHostEditorSheet: View {
+    let title: String
+    let subtitle: String
+    let initialDraft: RegistryHostDraft
+    let onSave: (RegistryHostDraft) throws -> Void
+    let onClose: () -> Void
+
+    @State private var name: String
+    @State private var address: String
+    @State private var portText: String
+    @State private var user: String
+    @State private var tagsText: String
+    @State private var osHint: RegistryHostOsHint
+    @State private var osDistro: String
+    @State private var status: RegistryHostStatus
+    @State private var providerTargets: [RegistryProviderTargetDraft]
+    @State private var errorMessage: String?
+    @State private var isSaving = false
+
+    init(
+        title: String,
+        subtitle: String,
+        initialDraft: RegistryHostDraft,
+        onSave: @escaping (RegistryHostDraft) throws -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.initialDraft = initialDraft
+        self.onSave = onSave
+        self.onClose = onClose
+        _name = State(initialValue: initialDraft.name)
+        _address = State(initialValue: initialDraft.address)
+        _portText = State(initialValue: initialDraft.port.map(String.init) ?? "")
+        _user = State(initialValue: initialDraft.user ?? "")
+        _tagsText = State(initialValue: initialDraft.tags.joined(separator: ", "))
+        _osHint = State(initialValue: initialDraft.osHint)
+        _osDistro = State(initialValue: initialDraft.osDistro ?? "")
+        _status = State(initialValue: initialDraft.status)
+        _providerTargets = State(initialValue: initialDraft.providerTargets)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sheetHeader
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    RegistryEditorSection("主机信息") {
+                        RegistryLabeledField("名称", text: $name)
+                        RegistryLabeledField("地址", text: $address)
+                        RegistryLabeledField("端口", text: $portText)
+                        RegistryLabeledField("用户", text: $user)
+                        RegistryLabeledField("标签", text: $tagsText, prompt: "用逗号分隔")
+                        RegistryEnumPicker("系统类型", selection: $osHint, options: RegistryHostOsHint.editorOptions)
+                        RegistryEnumPicker("状态提示", selection: $status, options: RegistryHostStatus.editorOptions)
+                        RegistryLabeledField("发行版", text: $osDistro, prompt: "可选")
+                    }
+
+                    RegistryEditorSection("Provider Targets") {
+                        ForEach(Array(providerTargets.indices), id: \.self) { index in
+                            RegistryProviderTargetDraftEditor(
+                                title: "链路 \(index + 1)",
+                                draft: $providerTargets[index],
+                                canRemove: providerTargets.count > 1
+                            ) {
+                                providerTargets.remove(at: index)
+                            }
+                        }
+
+                        Button {
+                            providerTargets.append(.blank)
+                        } label: {
+                            Label("新增链路", systemImage: "plus")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+
+            if let errorMessage {
+                RegistryInlineError(message: errorMessage)
+            }
+
+            HStack {
+                Spacer()
+                Button("取消", action: onClose)
+                Button(isSaving ? "保存中…" : "保存") {
+                    save()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isSaving)
+            }
+        }
+        .padding(20)
+        .frame(width: 560, height: 620)
+    }
+
+    private var sheetHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+            Text(subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    private func save() {
+        errorMessage = nil
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try onSave(
+                RegistryHostDraft(
+                    id: initialDraft.id,
+                    name: name,
+                    address: address,
+                    port: parseOptionalPort(portText),
+                    user: normalized(user),
+                    tags: tags(from: tagsText),
+                    osHint: osHint,
+                    osDistro: normalized(osDistro),
+                    status: status,
+                    providerTargets: providerTargets.map {
+                        RegistryProviderTargetDraft(
+                            id: $0.id,
+                            label: $0.label,
+                            kind: $0.kind,
+                            targetAddress: $0.targetAddress,
+                            targetPort: parseOptionalPort($0.targetPort.map(String.init) ?? "")
+                        )
+                    }
+                )
+            )
+            onClose()
+        } catch let error as BridgeErrorInfo {
+            errorMessage = [error.summary, error.detail].compactMap { $0 }.joined(separator: "\n")
+        } catch let error as RegistryEditorValidationError {
+            errorMessage = [error.summary, error.detail].compactMap { $0 }.joined(separator: "\n")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct RegistryRuleEditorSheet: View {
+    let title: String
+    let subtitle: String
+    let host: RegistryHost
+    let initialDraft: RegistryRuleDraft
+    let onSave: (RegistryRuleDraft) throws -> Void
+    let onClose: () -> Void
+
+    @State private var serviceName: String
+    @State private var alias: String
+    @State private var providerTargetId: String
+    @State private var remoteHost: String
+    @State private var mainLocalPortText: String
+    @State private var mainRemotePortText: String
+    @State private var secondaryPorts: [RegistryPortMapping]
+    @State private var kind: String
+    @State private var tagsText: String
+    @State private var notes: String
+    @State private var errorMessage: String?
+    @State private var isSaving = false
+
+    init(
+        title: String,
+        subtitle: String,
+        host: RegistryHost,
+        initialDraft: RegistryRuleDraft,
+        onSave: @escaping (RegistryRuleDraft) throws -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.host = host
+        self.initialDraft = initialDraft
+        self.onSave = onSave
+        self.onClose = onClose
+        _serviceName = State(initialValue: initialDraft.serviceName)
+        _alias = State(initialValue: initialDraft.alias ?? "")
+        _providerTargetId = State(initialValue: initialDraft.providerTargetId)
+        _remoteHost = State(initialValue: initialDraft.mainRemoteHost)
+        _mainLocalPortText = State(initialValue: String(initialDraft.mainLocalPort))
+        _mainRemotePortText = State(initialValue: String(initialDraft.mainRemotePort))
+        _secondaryPorts = State(initialValue: initialDraft.secondaryPorts)
+        _kind = State(initialValue: initialDraft.kind ?? "")
+        _tagsText = State(initialValue: initialDraft.tags.joined(separator: ", "))
+        _notes = State(initialValue: initialDraft.notes ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    RegistryEditorSection("规则信息") {
+                        RegistryLabeledField("名称", text: $serviceName)
+                        RegistryLabeledField("别名", text: $alias, prompt: "可选")
+                        RegistryTargetPicker(
+                            selection: $providerTargetId,
+                            targets: host.providerTargets
+                        )
+                        RegistryLabeledField("类型", text: $kind, prompt: "可选")
+                        RegistryLabeledField("标签", text: $tagsText, prompt: "用逗号分隔")
+                    }
+
+                    RegistryEditorSection("端口映射") {
+                        RegistryLabeledField("远端主机", text: $remoteHost)
+                        RegistryLabeledField("本地主端口", text: $mainLocalPortText)
+                        RegistryLabeledField("远端主端口", text: $mainRemotePortText)
+
+                        ForEach(Array(secondaryPorts.indices), id: \.self) { index in
+                            RegistrySecondaryPortEditor(
+                                title: "附属端口 \(index + 1)",
+                                mapping: $secondaryPorts[index]
+                            ) {
+                                secondaryPorts.remove(at: index)
+                            }
+                        }
+
+                        Button {
+                            secondaryPorts.append(
+                                RegistryPortMapping(localPort: 0, remoteHost: remoteHost, remotePort: 0)
+                            )
+                        } label: {
+                            Label("新增附属端口", systemImage: "plus")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    RegistryEditorSection("备注") {
+                        TextEditor(text: $notes)
+                            .font(.system(size: 12))
+                            .frame(height: 100)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
+                            }
+                    }
+                }
+            }
+
+            if let errorMessage {
+                RegistryInlineError(message: errorMessage)
+            }
+
+            HStack {
+                Spacer()
+                Button("取消", action: onClose)
+                Button(isSaving ? "保存中…" : "保存") {
+                    save()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isSaving)
+            }
+        }
+        .padding(20)
+        .frame(width: 560, height: 640)
+    }
+
+    private func save() {
+        errorMessage = nil
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try onSave(
+                RegistryRuleDraft(
+                    id: initialDraft.id,
+                    hostId: host.id,
+                    serviceName: serviceName,
+                    alias: normalized(alias),
+                    providerTargetId: providerTargetId,
+                    remoteHost: remoteHost,
+                    mainLocalPort: try parseRequiredPort(mainLocalPortText, label: "本地主端口"),
+                    mainRemoteHost: remoteHost,
+                    mainRemotePort: try parseRequiredPort(mainRemotePortText, label: "远端主端口"),
+                    secondaryPorts: secondaryPorts,
+                    kind: normalized(kind),
+                    tags: tags(from: tagsText),
+                    notes: normalized(notes)
+                )
+            )
+            onClose()
+        } catch let error as BridgeErrorInfo {
+            errorMessage = [error.summary, error.detail].compactMap { $0 }.joined(separator: "\n")
+        } catch let error as RegistryEditorValidationError {
+            errorMessage = [error.summary, error.detail].compactMap { $0 }.joined(separator: "\n")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct RegistryProviderTargetDraftEditor: View {
+    let title: String
+    @Binding var draft: RegistryProviderTargetDraft
+    let canRemove: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if canRemove {
+                    Button("移除", role: .destructive, action: onRemove)
+                        .font(.system(size: 11, weight: .medium))
+                        .buttonStyle(.borderless)
+                }
+            }
+
+            RegistryEnumPicker("类型", selection: $draft.kind, options: RegistryProviderKind.editorOptions)
+            RegistryLabeledField("标签", text: $draft.label)
+            RegistryLabeledField("目标地址", text: $draft.targetAddress)
+            RegistryOptionalPortField("目标端口", port: Binding(
+                get: { draft.targetPort },
+                set: { draft.targetPort = $0 }
+            ))
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(RelayDockColor.controlBackground.opacity(0.56))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
+        }
+    }
+}
+
+private struct RegistrySecondaryPortEditor: View {
+    let title: String
+    @Binding var mapping: RegistryPortMapping
+    let onRemove: () -> Void
+
+    @State private var localPortText = ""
+    @State private var remoteHostText = ""
+    @State private var remotePortText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("移除", role: .destructive, action: onRemove)
+                    .font(.system(size: 11, weight: .medium))
+                    .buttonStyle(.borderless)
+            }
+
+            RegistryLabeledField("本地端口", text: Binding(
+                get: { mapping.localPort == 0 ? "" : String(mapping.localPort) },
+                set: { mapping.localPort = UInt16($0) ?? 0 }
+            ))
+            RegistryLabeledField("远端主机", text: Binding(
+                get: { mapping.remoteHost },
+                set: { mapping.remoteHost = $0 }
+            ))
+            RegistryLabeledField("远端端口", text: Binding(
+                get: { mapping.remotePort == 0 ? "" : String(mapping.remotePort) },
+                set: { mapping.remotePort = UInt16($0) ?? 0 }
+            ))
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(RelayDockColor.controlBackground.opacity(0.56))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
+        }
+    }
+}
+
+private struct RegistryEditorSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            RegistrySectionHeader(title)
+            content
+        }
+    }
+}
+
+private struct RegistryLabeledField: View {
+    let label: String
+    @Binding var text: String
+    var prompt: String?
+
+    init(_ label: String, text: Binding<String>, prompt: String? = nil) {
+        self.label = label
+        self._text = text
+        self.prompt = prompt
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField(prompt ?? "", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+        }
+    }
+}
+
+private struct RegistryOptionalPortField: View {
+    let label: String
+    @Binding var port: UInt16?
+    @State private var text: String
+
+    init(_ label: String, port: Binding<UInt16?>) {
+        self.label = label
+        self._port = port
+        self._text = State(initialValue: port.wrappedValue.map(String.init) ?? "")
+    }
+
+    var body: some View {
+        RegistryLabeledField(label, text: Binding(
+            get: { text },
+            set: {
+                text = $0
+                port = UInt16($0)
+            }
+        ), prompt: "可选")
+    }
+}
+
+private struct RegistryTargetPicker: View {
+    @Binding var selection: String
+    let targets: [RegistryProviderTarget]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("链路")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Picker("", selection: $selection) {
+                ForEach(targets) { target in
+                    Text(target.label).tag(target.id)
+                }
+            }
+            .labelsHidden()
+        }
+    }
+}
+
+private struct RegistryEnumPicker<T: Hashable & RawRepresentable & RegistryDisplayNameProviding>: View where T.RawValue == String {
+    let label: String
+    @Binding var selection: T
+    let options: [T]
+
+    init(_ label: String, selection: Binding<T>, options: [T]) {
+        self.label = label
+        self._selection = selection
+        self.options = options
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Picker("", selection: $selection) {
+                ForEach(options, id: \.self) { option in
+                    Text(option.registryDisplayName).tag(option)
+                }
+            }
+            .labelsHidden()
+        }
+    }
+}
+
+private struct RegistryInlineError: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: 11))
+            .foregroundStyle(.red)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.red.opacity(0.08))
+            }
+    }
+}
+
+private struct RegistryEditorValidationError: Error {
+    let summary: String
+    let detail: String?
+}
+
 private struct RegistrySectionHeader: View {
     let title: String
 
@@ -709,9 +1289,45 @@ private struct RegistrySubsectionTitle: View {
     }
 }
 
+private protocol RegistryDisplayNameProviding {
+    var registryDisplayName: String { get }
+}
+
+private func normalized(_ text: String) -> String? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+private func tags(from text: String) -> [String] {
+    text
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+}
+
+private func parseOptionalPort(_ text: String) -> UInt16? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    return UInt16(trimmed)
+}
+
+private func parseRequiredPort(_ text: String, label: String) throws -> UInt16 {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let value = UInt16(trimmed), value > 0 else {
+        throw RegistryEditorValidationError(
+            summary: "\(label)无效",
+            detail: "请输入 1-65535 之间的端口。"
+        )
+    }
+
+    return value
+}
+
 private extension RegistryHostStatus {
     var title: String {
         switch self {
+        case .unknown:
+            "未探测"
         case .online:
             "在线"
         case .offline:
@@ -721,11 +1337,17 @@ private extension RegistryHostStatus {
 
     var color: Color {
         switch self {
+        case .unknown:
+            .secondary
         case .online:
             .green
         case .offline:
             .secondary
         }
+    }
+
+    static var editorOptions: [RegistryHostStatus] {
+        [.unknown, .online, .offline]
     }
 }
 
@@ -742,7 +1364,158 @@ private extension RegistryHostOsHint {
             "cpu"
         case .raspberryPi:
             "memorychip"
+        case .unknown:
+            "questionmark.square.dashed"
         }
+    }
+
+    static var editorOptions: [RegistryHostOsHint] {
+        [.macos, .ubuntu, .windows, .linux, .raspberryPi, .unknown]
+    }
+}
+
+extension RegistryHostStatus: RegistryDisplayNameProviding {
+    var registryDisplayName: String {
+        switch self {
+        case .unknown:
+            "未探测"
+        case .online:
+            "在线"
+        case .offline:
+            "离线"
+        }
+    }
+}
+
+extension RegistryHostOsHint: RegistryDisplayNameProviding {
+    var registryDisplayName: String {
+        switch self {
+        case .macos:
+            "macOS"
+        case .ubuntu:
+            "Ubuntu"
+        case .windows:
+            "Windows"
+        case .linux:
+            "Linux"
+        case .raspberryPi:
+            "Raspberry Pi"
+        case .unknown:
+            "未知"
+        }
+    }
+}
+
+extension RegistryProviderKind: CaseIterable, RegistryDisplayNameProviding {
+    static var allCases: [RegistryProviderKind] {
+        [.ssh, .tailscale]
+    }
+
+    static var editorOptions: [RegistryProviderKind] {
+        allCases
+    }
+
+    var registryDisplayName: String {
+        switch self {
+        case .ssh:
+            "SSH"
+        case .tailscale:
+            "Tailscale"
+        }
+    }
+}
+
+private extension RegistryHost {
+    var hostDraft: RegistryHostDraft {
+        RegistryHostDraft(
+            id: id,
+            name: name,
+            address: address,
+            port: port,
+            user: user,
+            tags: tags,
+            osHint: osHint,
+            osDistro: osDistro,
+            status: status,
+            providerTargets: providerTargets.map {
+                RegistryProviderTargetDraft(
+                    id: $0.id,
+                    label: $0.label,
+                    kind: $0.kind,
+                    targetAddress: $0.targetAddress,
+                    targetPort: $0.targetPort
+                )
+            }
+        )
+    }
+}
+
+private extension RegistryHostDraft {
+    static var blank: RegistryHostDraft {
+        RegistryHostDraft(
+            id: nil,
+            name: "",
+            address: "",
+            port: 22,
+            user: "",
+            tags: [],
+            osHint: .macos,
+            osDistro: nil,
+            status: .unknown,
+            providerTargets: [.blank]
+        )
+    }
+}
+
+private extension RegistryProviderTargetDraft {
+    static var blank: RegistryProviderTargetDraft {
+        RegistryProviderTargetDraft(
+            id: nil,
+            label: "",
+            kind: .ssh,
+            targetAddress: "",
+            targetPort: 22
+        )
+    }
+}
+
+private extension RegistryRule {
+    func ruleDraft(hostId: String) -> RegistryRuleDraft {
+        RegistryRuleDraft(
+            id: id,
+            hostId: hostId,
+            serviceName: serviceName,
+            alias: alias.isEmpty ? nil : alias,
+            providerTargetId: providerTargetId,
+            remoteHost: remoteHost,
+            mainLocalPort: mainLocalPort,
+            mainRemoteHost: mainRemoteHost,
+            mainRemotePort: mainRemotePort,
+            secondaryPorts: secondaryPorts,
+            kind: kind,
+            tags: tags,
+            notes: notes
+        )
+    }
+}
+
+private extension RegistryRuleDraft {
+    static func blank(hostId: String, providerTargetId: String?) -> RegistryRuleDraft {
+        RegistryRuleDraft(
+            id: nil,
+            hostId: hostId,
+            serviceName: "",
+            alias: nil,
+            providerTargetId: providerTargetId ?? "",
+            remoteHost: "127.0.0.1",
+            mainLocalPort: 3000,
+            mainRemoteHost: "127.0.0.1",
+            mainRemotePort: 3000,
+            secondaryPorts: [],
+            kind: nil,
+            tags: [],
+            notes: nil
+        )
     }
 }
 

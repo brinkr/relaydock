@@ -85,6 +85,16 @@ final class RelayDockBridgeExecutor {
         return snapshot
     }
 
+    func saveRegistryHost(_ host: RegistryHostDraft) throws -> RegistrySnapshotResult {
+        let result = try execute(.saveRegistryHost(SaveRegistryHostCommand(host: host)))
+        return try unwrapRegistrySnapshot(result, actionDescription: "save registry host")
+    }
+
+    func saveRegistryRule(_ rule: RegistryRuleDraft) throws -> RegistrySnapshotResult {
+        let result = try execute(.saveRegistryRule(SaveRegistryRuleCommand(rule: rule)))
+        return try unwrapRegistrySnapshot(result, actionDescription: "save registry rule")
+    }
+
     func startDemoRule(ruleId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
         let command = DemoRuleActionCommand(ruleId: ruleId, snapshot: snapshot)
         let result = try execute(.startDemoRule(command))
@@ -205,6 +215,26 @@ final class RelayDockBridgeExecutor {
                 code: .responseDecodeFailed,
                 summary: "Bridge returned an unexpected result type",
                 detail: "Expected run_recovery_snapshot for \(actionDescription).",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: nil
+            )
+        }
+
+        return snapshot
+    }
+
+    private func unwrapRegistrySnapshot(
+        _ result: BridgeCommandResult,
+        actionDescription: String
+    ) throws -> RegistrySnapshotResult {
+        guard case let .registrySnapshot(snapshot) = result else {
+            throw BridgeErrorInfo(
+                code: .responseDecodeFailed,
+                summary: "Bridge returned an unexpected result type",
+                detail: "Expected registry_snapshot for \(actionDescription).",
                 affectedPort: nil,
                 affectedRuleId: nil,
                 affectedRuntimeId: nil,

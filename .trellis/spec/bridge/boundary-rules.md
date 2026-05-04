@@ -111,6 +111,78 @@ Correct registry snapshot request:
 {"command": "load_registry_snapshot"}
 ```
 
+## Registry Editing Persistence Extension
+
+### 1. Scope / Trigger
+
+- Trigger: `资源登记` stops being a placeholder-only workspace and must save host/rule edits through the bridge into Rust-owned SQLite storage.
+- Scope: first editing slice covers `新建资源分组`, `主机设置`, `新增规则`, `编辑映射`, and `编辑规则`.
+- Boundary: Swift owns sheet presentation and field editing; Rust owns validation, persistence, and projection back into `registry_snapshot`.
+
+### 2. Signatures
+
+Rust commands:
+
+```json
+{"command":"load_registry_snapshot"}
+{"command":"save_registry_host","host":{"id":"host-mac-studio","name":"Mac Studio - Office","address":"10.0.4.5","port":22,"user":"admin","tags":["office"],"os_hint":"macos","status":"unknown","provider_targets":[{"id":"target-ssh-office","host_id":"host-mac-studio","provider_kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
+{"command":"save_registry_rule","rule":{"id":"rule-relay-admin","host_id":"host-mac-studio","provider_target_id":"target-ssh-office","name":"Relay Admin","alias":"admin.office.localhost","kind":"web","tags":["admin","office"],"remote_host":"127.0.0.1","main_port":{"local_port":3000,"remote_port":3000},"secondary_ports":[],"notes":null}}
+```
+
+Swift entrypoints:
+
+```swift
+loadRegistrySnapshot()
+saveRegistryHost(_ host: RegistryHostDraft)
+saveRegistryRule(_ rule: RegistryRuleDraft)
+```
+
+### 3. Contracts
+
+- `load_registry_snapshot` must read the SQLite-backed `ConfigurationSnapshot` and project it into `RegistrySnapshotResult`.
+- Empty storage returns an empty `RegistrySnapshotResult`; Swift must show the empty state until the user creates the first host through `新建资源分组`.
+- `save_registry_host` may create the first saved configuration snapshot; it must not depend on a seeded demo registry.
+- `save_registry_rule` must update or append a rule, then return the full next `registry_snapshot` for immediate UI refresh.
+- Provider-target drafts in this slice are intentionally narrow: `provider_kind`, `label`, `target_address`, and optional `target_port`. Do not send `auth_ref`, secrets, or Keychain material through this form contract.
+- Production bridge storage path defaults to `~/Library/Application Support/RelayDock/relaydock.sqlite3`.
+- `RELAYDOCK_STORE_PATH` may override the SQLite path for QA or tooling.
+
+### 4. Validation & Error Matrix
+
+- Missing host/rule required fields -> `registry_validation_failed`.
+- Rule references a host/provider-target mismatch -> `registry_validation_failed`.
+- Provider-target draft includes unsupported credential-like fields -> `registry_validation_failed`.
+- SQLite open/create/save/load failure -> `storage_failed`.
+- Empty storage on `load_registry_snapshot` -> success with empty arrays, not a bridge error.
+
+### 5. Good/Base/Bad Cases
+
+- Good: user creates the first host from an empty registry, saves it, and the returned snapshot selects that host immediately.
+- Base: user edits a rule and receives the same host list with the updated rule summary after one bridge round-trip.
+- Bad: Swift seeds demo hosts into SQLite or keeps a separate Swift-only registry state machine to fake persistence.
+
+### 6. Tests Required
+
+- Rust unit test that `load_registry_snapshot` returns empty state for empty storage.
+- Rust unit test that `save_registry_host` bootstraps the first saved configuration and returns the new selected host.
+- Rust unit test that `save_registry_rule` updates stored configuration and projects the new rule summary.
+- Rust unit test that invalid host/rule drafts map to `registry_validation_failed`.
+- Swift build must compile bridge models, executor, view model, and registry editor sheets together.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```json
+{"command":"save_registry_host","host":{"name":"Mac Studio - Office","provider_targets":[{"label":"SSH · 办公室","auth_ref":"keychain:ssh-office"}]}}
+```
+
+Correct:
+
+```json
+{"command":"save_registry_host","host":{"name":"Mac Studio - Office","provider_targets":[{"provider_kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
+```
+
 ## Demo Runtime Action Extension
 
 ### 1. Scope / Trigger

@@ -67,6 +67,12 @@ struct RelayDockShellView: View {
                 snapshot: viewModel.registrySnapshot,
                 selectedHostId: $viewModel.selectedRegistryHostId,
                 bridgeError: viewModel.registryError,
+                onSaveHost: { draft in
+                    try viewModel.saveRegistryHost(draft)
+                },
+                onSaveRule: { draft in
+                    try viewModel.saveRegistryRule(draft)
+                },
                 onRecoverRule: { ruleId in
                     viewModel.recoverDemoRule(ruleId: ruleId)
                     viewModel.selection = .runAndRecovery

@@ -14,17 +14,17 @@ This task exists because `资源登记` now looks structurally correct, but key 
 - The bridge currently exposes `load_registry_snapshot`, but not a storage-backed mutation flow for registry configuration.
 - The earlier runnable slice intentionally left registry editing UI and SSH command import out of scope.
 - Product docs already define `资源登记` as the configuration center for hosts, rules, presets, provider targets, and SSH command import.
+- The user confirmed that the first saved configuration should be created explicitly by `新建资源分组`, not by silently auto-seeding a starter snapshot.
+- The user confirmed that the first editing slice should keep provider-target editing narrow: `类型(SSH/Tailscale) + 标签 + target_address + target_port(可选)`, without exposing `auth_ref` or credential management in Swift.
 
 ## Assumptions (temporary)
 
 - First useful slice should prioritize saved host/rule/provider-target editing over SSH import and preset derivation.
 - It is acceptable for `运行与恢复` to remain demo-backed in this task as long as `资源登记` stops being a fake editing surface.
-- When no saved configuration exists yet, the bridge may seed storage from a deterministic baseline or return a deterministic starter snapshot, but edits must thereafter round-trip through storage rather than hardcoded UI-only state.
+- When no saved configuration exists yet, `资源登记` should stay empty until the user creates the first host through `新建资源分组`.
+- Provider-target editing in this slice should stay limited to connection identity and addressing fields, leaving auth references and secrets outside the Swift form surface.
 
 ## Open Questions
-
-- Should the empty-state bootstrap path create a starter configuration automatically, or should the first `新建资源分组` action create the initial saved snapshot?
-- For the first editing slice, which provider-target fields are truly required for a host to become useful without dragging real credential management into Swift?
 
 ## Requirements
 
@@ -37,6 +37,13 @@ This task exists because `资源登记` now looks structurally correct, but key 
 - Keep the forms SwiftUI-native and focused; do not turn `资源登记` into a giant page-level editor.
 - Add coarse-grained bridge commands for reading and writing registry configuration. Swift should submit structured form data; Rust should validate, persist, and return the next snapshot or a structured error.
 - Rust storage remains the source of truth for saved hosts, rules, presets, and provider targets.
+- The first saved configuration snapshot must be created explicitly from the `新建资源分组` flow when storage is empty.
+- Provider-target forms in this slice should edit only:
+  - `类型`
+  - `标签`
+  - `target_address`
+  - `target_port(可选)`
+- `auth_ref`, Keychain integration, and credential management must stay outside this slice.
 - Registry reloads must reflect saved edits after:
   - sheet save
   - toolbar `重新检查`

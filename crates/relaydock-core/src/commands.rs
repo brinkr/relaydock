@@ -1,5 +1,14 @@
+use crate::domain::{
+    Host as DomainHost, HostId, HostStatusHint, LocalAlias, Metadata, OsFamily, PortMapping,
+    Preset as DomainPreset, ProviderTarget as DomainProviderTarget, ProviderTargetId,
+    ProviderTargetType, Rule as DomainRule, RuleId,
+};
 use crate::ports::{detect_conflict, next_available_port, PortClaim, PortConflict, PortUsage};
+use crate::storage::{ConfigurationSnapshot, RelayDockStore, StorageError, StorageValidationError};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(not(test))]
+use std::{env, fs, path::PathBuf};
 
 const DEMO_REFRESHED_AT_EPOCH_SECONDS: u64 = 1_777_777_777;
 
@@ -9,6 +18,8 @@ pub enum BridgeCommand {
     CheckPortClaim(CheckPortClaimCommand),
     LoadRunRecoverySnapshot,
     LoadRegistrySnapshot,
+    SaveRegistryHost(SaveRegistryHostCommand),
+    SaveRegistryRule(SaveRegistryRuleCommand),
     StartDemoRule(DemoRuleActionCommand),
     RetryDemoRuntime(DemoRuntimeActionCommand),
     StopDemoRuntime(DemoRuntimeActionCommand),
@@ -62,6 +73,60 @@ pub struct DemoLocalPortOverrideCommand {
 pub struct DemoRecoveryActionCommand {
     pub recovery_id: String,
     pub snapshot: RunRecoverySnapshotResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveRegistryHostCommand {
+    pub host: RegistryHostDraft,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveRegistryRuleCommand {
+    pub rule: RegistryRuleDraft,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryHostDraft {
+    pub id: Option<String>,
+    pub name: String,
+    pub address: String,
+    pub port: Option<u16>,
+    pub user: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub os_hint: RegistryHostOsHint,
+    pub os_distro: Option<String>,
+    pub status: RegistryHostStatus,
+    #[serde(default)]
+    pub provider_targets: Vec<RegistryProviderTargetDraft>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryProviderTargetDraft {
+    pub id: Option<String>,
+    pub label: String,
+    pub kind: RegistryProviderKind,
+    pub target_address: String,
+    pub target_port: Option<u16>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryRuleDraft {
+    pub id: Option<String>,
+    pub host_id: String,
+    pub service_name: String,
+    pub alias: Option<String>,
+    pub provider_target_id: String,
+    pub remote_host: String,
+    pub main_local_port: u16,
+    pub main_remote_host: String,
+    pub main_remote_port: u16,
+    #[serde(default)]
+    pub secondary_ports: Vec<RegistryPortMapping>,
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,6 +291,11 @@ pub struct RegistryHost {
     pub endpoint: String,
     pub status: RegistryHostStatus,
     pub os_hint: RegistryHostOsHint,
+    pub address: String,
+    pub port: Option<u16>,
+    pub user: Option<String>,
+    pub tags: Vec<String>,
+    pub os_distro: Option<String>,
     pub provider_targets: Vec<RegistryProviderTarget>,
     pub presets: Vec<RegistryPreset>,
     pub rules: Vec<RegistryRule>,
@@ -234,6 +304,7 @@ pub struct RegistryHost {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistryHostStatus {
+    Unknown,
     Online,
     Offline,
 }
@@ -246,6 +317,7 @@ pub enum RegistryHostOsHint {
     Windows,
     Linux,
     RaspberryPi,
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,6 +325,8 @@ pub struct RegistryProviderTarget {
     pub id: String,
     pub label: String,
     pub kind: RegistryProviderKind,
+    pub target_address: String,
+    pub target_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -284,6 +358,22 @@ pub struct RegistryRule {
     pub provider_label: String,
     pub port_summary: String,
     pub runtime_state: RegistryRuleRuntimeState,
+    pub provider_target_id: String,
+    pub remote_host: String,
+    pub main_local_port: u16,
+    pub main_remote_host: String,
+    pub main_remote_port: u16,
+    pub secondary_ports: Vec<RegistryPortMapping>,
+    pub kind: Option<String>,
+    pub tags: Vec<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryPortMapping {
+    pub local_port: u16,
+    pub remote_host: String,
+    pub remote_port: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -381,6 +471,34 @@ impl BridgeError {
             ),
         }
     }
+
+    pub fn registry_validation(summary: impl Into<String>, detail: Option<String>) -> Self {
+        Self {
+            code: BridgeErrorCode::RegistryValidationFailed,
+            summary: summary.into(),
+            detail,
+            affected_port: None,
+            affected_rule_id: None,
+            affected_runtime_id: None,
+            affected_recovery_id: None,
+            suggested_recovery: Some(
+                "检查主机、provider target、规则字段是否完整，并确认引用关系没有断开。".to_string(),
+            ),
+        }
+    }
+
+    pub fn storage_failure(summary: impl Into<String>, detail: Option<String>) -> Self {
+        Self {
+            code: BridgeErrorCode::StorageFailed,
+            summary: summary.into(),
+            detail,
+            affected_port: None,
+            affected_rule_id: None,
+            affected_runtime_id: None,
+            affected_recovery_id: None,
+            suggested_recovery: Some("检查 RelayDock 本地存储路径与写入权限。".to_string()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -389,6 +507,8 @@ pub enum BridgeErrorCode {
     InvalidCommand,
     InternalError,
     InvalidDemoAction,
+    RegistryValidationFailed,
+    StorageFailed,
 }
 
 pub fn execute_bridge_command(
@@ -402,7 +522,13 @@ pub fn execute_bridge_command(
             load_run_recovery_snapshot(),
         )),
         BridgeCommand::LoadRegistrySnapshot => Ok(BridgeCommandResult::RegistrySnapshot(
-            load_registry_snapshot(),
+            load_registry_snapshot()?,
+        )),
+        BridgeCommand::SaveRegistryHost(command) => Ok(BridgeCommandResult::RegistrySnapshot(
+            save_registry_host(command)?,
+        )),
+        BridgeCommand::SaveRegistryRule(command) => Ok(BridgeCommandResult::RegistrySnapshot(
+            save_registry_rule(command)?,
         )),
         BridgeCommand::StartDemoRule(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             start_demo_rule(command.snapshot, &command.rule_id),
@@ -447,8 +573,50 @@ pub fn load_run_recovery_snapshot() -> RunRecoverySnapshotResult {
     demo_run_recovery_snapshot().recomputed(None)
 }
 
-pub fn load_registry_snapshot() -> RegistrySnapshotResult {
-    demo_registry_snapshot()
+pub fn load_registry_snapshot() -> Result<RegistrySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        load_registry_snapshot_from_store(&store)
+    }
+
+    #[cfg(not(test))]
+    {
+        let store = open_registry_store()?;
+        load_registry_snapshot_from_store(&store)
+    }
+}
+
+pub fn save_registry_host(
+    command: SaveRegistryHostCommand,
+) -> Result<RegistrySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        save_registry_host_to_store(&mut store, command)
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        save_registry_host_to_store(&mut store, command)
+    }
+}
+
+pub fn save_registry_rule(
+    command: SaveRegistryRuleCommand,
+) -> Result<RegistrySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        save_registry_rule_to_store(&mut store, command)
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        save_registry_rule_to_store(&mut store, command)
+    }
 }
 
 pub fn start_demo_rule(
@@ -1113,269 +1281,630 @@ fn stop_actions() -> Vec<RunRecoveryAction> {
     }]
 }
 
-fn demo_registry_snapshot() -> RegistrySnapshotResult {
+#[cfg(not(test))]
+fn open_registry_store() -> Result<RelayDockStore, Box<BridgeError>> {
+    let path = registry_store_path()?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            Box::new(BridgeError::storage_failure(
+                "无法创建 RelayDock 本地存储目录",
+                Some(error.to_string()),
+            ))
+        })?;
+    }
+
+    RelayDockStore::open(path).map_err(storage_error_to_bridge)
+}
+
+#[cfg(not(test))]
+fn registry_store_path() -> Result<PathBuf, Box<BridgeError>> {
+    if let Some(configured) = env::var_os("RELAYDOCK_STORE_PATH") {
+        return Ok(PathBuf::from(configured));
+    }
+
+    let home = env::var_os("HOME").ok_or_else(|| {
+        Box::new(BridgeError::storage_failure(
+            "无法确定 RelayDock 本地存储路径",
+            Some("HOME environment variable is missing.".to_string()),
+        ))
+    })?;
+
+    Ok(PathBuf::from(home)
+        .join("Library")
+        .join("Application Support")
+        .join("RelayDock")
+        .join("relaydock.sqlite3"))
+}
+
+fn load_registry_snapshot_from_store(
+    store: &RelayDockStore,
+) -> Result<RegistrySnapshotResult, Box<BridgeError>> {
+    let snapshot = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+
+    Ok(registry_snapshot_from_configuration(&snapshot, None))
+}
+
+fn save_registry_host_to_store(
+    store: &mut RelayDockStore,
+    command: SaveRegistryHostCommand,
+) -> Result<RegistrySnapshotResult, Box<BridgeError>> {
+    validate_registry_host_draft(&command.host)?;
+
+    let mut configuration = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let host = domain_host_from_draft(command.host)?;
+    let selected_host_id = host.id.to_string();
+
+    if let Some(index) = configuration
+        .hosts
+        .iter()
+        .position(|existing| existing.id == host.id)
+    {
+        configuration.hosts[index] = host;
+    } else {
+        configuration.hosts.push(host);
+    }
+
+    store
+        .save_configuration(&configuration)
+        .map_err(storage_error_to_bridge)?;
+
+    Ok(registry_snapshot_from_configuration(
+        &configuration,
+        Some(selected_host_id.as_str()),
+    ))
+}
+
+fn save_registry_rule_to_store(
+    store: &mut RelayDockStore,
+    command: SaveRegistryRuleCommand,
+) -> Result<RegistrySnapshotResult, Box<BridgeError>> {
+    validate_registry_rule_draft(&command.rule)?;
+
+    let mut configuration = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let rule = domain_rule_from_draft(command.rule)?;
+    let selected_host_id = rule.host_id.to_string();
+
+    if let Some(index) = configuration
+        .rules
+        .iter()
+        .position(|existing| existing.id == rule.id)
+    {
+        configuration.rules[index] = rule;
+    } else {
+        configuration.rules.push(rule);
+    }
+
+    store
+        .save_configuration(&configuration)
+        .map_err(storage_error_to_bridge)?;
+
+    Ok(registry_snapshot_from_configuration(
+        &configuration,
+        Some(selected_host_id.as_str()),
+    ))
+}
+
+fn registry_snapshot_from_configuration(
+    snapshot: &ConfigurationSnapshot,
+    selected_host_id: Option<&str>,
+) -> RegistrySnapshotResult {
+    let selected_host_id = selected_host_id
+        .filter(|candidate| {
+            snapshot
+                .hosts
+                .iter()
+                .any(|host| host.id.as_str() == *candidate)
+        })
+        .map(str::to_string)
+        .or_else(|| snapshot.hosts.first().map(|host| host.id.to_string()))
+        .unwrap_or_default();
+
     RegistrySnapshotResult {
-        refreshed_at_epoch_seconds: demo_now_epoch_seconds(),
-        selected_host_id: "host-home-mac-mini".to_string(),
-        hosts: vec![
-            RegistryHost {
-                id: "host-home-mac-mini".to_string(),
-                name: "Mac mini (M2) - 家".to_string(),
-                endpoint: "admin@192.168.1.5".to_string(),
-                status: RegistryHostStatus::Online,
-                os_hint: RegistryHostOsHint::Macos,
-                provider_targets: vec![
-                    registry_target(
-                        "target-home-ssh",
-                        "家庭宽带 (SSH)",
-                        RegistryProviderKind::Ssh,
-                    ),
-                    registry_target(
-                        "target-home-ts",
-                        "Tailscale 组网",
-                        RegistryProviderKind::Tailscale,
-                    ),
-                ],
-                presets: home_presets(),
-                rules: home_registry_rules(),
-            },
-            registry_host_summary(
-                "host-ubuntu-dev",
-                "Ubuntu Dev Server",
-                "root@10.0.0.12",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::Ubuntu,
-            ),
-            registry_host_summary(
-                "host-windows-web",
-                "Windows Web 测试",
-                "test@10.0.0.105",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::Windows,
-            ),
-            registry_host_summary(
-                "host-san-jose",
-                "San Jose 节点",
-                "ubuntu@sj.example.com",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::Ubuntu,
-            ),
-            registry_host_summary(
-                "host-aws-tokyo",
-                "AWS Tokyo GPU",
-                "ec2-user@tk.example.com",
-                RegistryHostStatus::Offline,
-                RegistryHostOsHint::Linux,
-            ),
-            registry_host_summary(
-                "host-raspberry-pi",
-                "Raspberry Pi",
-                "pi@192.168.1.100",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::RaspberryPi,
-            ),
-            registry_host_summary(
-                "host-oracle-frankfurt",
-                "Oracle Frankfurt",
-                "opc@130.60.0.1",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::Linux,
-            ),
-            registry_host_summary(
-                "host-homelab-02",
-                "Homelab Node 02",
-                "admin@192.168.1.20",
-                RegistryHostStatus::Offline,
-                RegistryHostOsHint::Ubuntu,
-            ),
-            registry_host_summary(
-                "host-mac-studio-office",
-                "Mac Studio - Office",
-                "admin@10.0.4.5",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::Macos,
-            ),
-            registry_host_summary(
-                "host-centos-build",
-                "CentOS Build Node",
-                "build@10.0.0.45",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::Linux,
-            ),
-            registry_host_summary(
-                "host-windows-gaming",
-                "Windows Gaming PC",
-                "gamer@192.168.1.150",
-                RegistryHostStatus::Offline,
-                RegistryHostOsHint::Windows,
-            ),
-            registry_host_summary(
-                "host-hetzner-dedicated",
-                "Hetzner Dedicated",
-                "root@116.20.0.10",
-                RegistryHostStatus::Online,
-                RegistryHostOsHint::Ubuntu,
-            ),
-        ],
+        refreshed_at_epoch_seconds: current_epoch_seconds(),
+        selected_host_id,
+        hosts: snapshot
+            .hosts
+            .iter()
+            .map(|host| registry_host_from_domain(snapshot, host))
+            .collect(),
     }
 }
 
-fn registry_host_summary(
-    id: &str,
-    name: &str,
-    endpoint: &str,
-    status: RegistryHostStatus,
-    os_hint: RegistryHostOsHint,
-) -> RegistryHost {
+fn registry_host_from_domain(snapshot: &ConfigurationSnapshot, host: &DomainHost) -> RegistryHost {
     RegistryHost {
-        id: id.to_string(),
-        name: name.to_string(),
-        endpoint: endpoint.to_string(),
-        status,
-        os_hint,
-        provider_targets: vec![registry_target(
-            &format!("{id}-ssh"),
-            "SSH",
-            RegistryProviderKind::Ssh,
-        )],
-        presets: Vec::new(),
-        rules: Vec::new(),
+        id: host.id.to_string(),
+        name: host.name.clone(),
+        endpoint: host_endpoint(host),
+        status: registry_host_status_from_hint(&host.status_hint),
+        os_hint: registry_host_os_hint_from_domain(host),
+        address: host.address.clone(),
+        port: host.port,
+        user: host.user.clone(),
+        tags: host.tags.clone(),
+        os_distro: host.os_distro.clone(),
+        provider_targets: host
+            .provider_targets
+            .iter()
+            .map(registry_target_from_domain)
+            .collect(),
+        presets: snapshot
+            .presets
+            .iter()
+            .filter(|preset| preset.host_id == host.id)
+            .map(|preset| registry_preset_from_domain(snapshot, preset))
+            .collect(),
+        rules: snapshot
+            .rules
+            .iter()
+            .filter(|rule| rule.host_id == host.id)
+            .map(|rule| registry_rule_from_domain(snapshot, rule))
+            .collect(),
     }
 }
 
-fn registry_target(id: &str, label: &str, kind: RegistryProviderKind) -> RegistryProviderTarget {
+fn registry_target_from_domain(target: &DomainProviderTarget) -> RegistryProviderTarget {
     RegistryProviderTarget {
-        id: id.to_string(),
-        label: label.to_string(),
-        kind,
+        id: target.id.to_string(),
+        label: target.label.clone(),
+        kind: registry_provider_kind_from_domain(&target.target_type),
+        target_address: target.target_address.clone(),
+        target_port: target.target_port,
     }
 }
 
-fn home_presets() -> Vec<RegistryPreset> {
-    vec![
-        RegistryPreset {
-            id: "preset-home-daily".to_string(),
-            name: "日常开发 (基础)".to_string(),
-            derived_from: None,
-            rules: vec![
-                preset_rule("React 前端", "家庭宽带 (SSH)"),
-                preset_rule("FastAPI Backend", "家庭宽带 (SSH)"),
-                preset_rule("PostgreSQL Main", "家庭宽带 (SSH)"),
-                preset_rule("Redis Cache", "家庭宽带 (SSH)"),
-            ],
-        },
-        RegistryPreset {
-            id: "preset-home-office".to_string(),
-            name: "公司办公 (派生)".to_string(),
-            derived_from: Some("日常开发 (基础)".to_string()),
-            rules: vec![
-                preset_rule("React 前端", "Tailscale 组网"),
-                preset_rule("FastAPI Backend", "Tailscale 组网"),
-            ],
-        },
-    ]
-}
-
-fn preset_rule(service_name: &str, target_label: &str) -> RegistryPresetRule {
-    RegistryPresetRule {
-        service_name: service_name.to_string(),
-        target_label: target_label.to_string(),
+fn registry_preset_from_domain(
+    snapshot: &ConfigurationSnapshot,
+    preset: &DomainPreset,
+) -> RegistryPreset {
+    RegistryPreset {
+        id: preset.id.to_string(),
+        name: preset.name.clone(),
+        derived_from: preset.base_preset_id.as_ref().and_then(|base_id| {
+            snapshot
+                .presets
+                .iter()
+                .find(|candidate| candidate.id == *base_id)
+                .map(|candidate| candidate.name.clone())
+        }),
+        rules: preset
+            .items
+            .iter()
+            .filter_map(|item| {
+                snapshot
+                    .rules
+                    .iter()
+                    .find(|rule| rule.id == item.rule_id)
+                    .map(|rule| {
+                        let target_id = item
+                            .provider_target_override
+                            .as_ref()
+                            .unwrap_or(&rule.provider_target_id);
+                        RegistryPresetRule {
+                            service_name: rule.name.clone(),
+                            target_label: provider_label(snapshot, target_id),
+                        }
+                    })
+            })
+            .collect(),
     }
 }
 
-fn home_registry_rules() -> Vec<RegistryRule> {
-    vec![
-        registry_rule(
-            "react-frontend",
-            "React 前端",
-            "react.home.localhost",
-            "Tailscale · 家里",
-            "3000",
-            RegistryRuleRuntimeState::Running,
-        ),
-        registry_rule(
-            "fastapi-backend",
-            "FastAPI Backend",
-            "api.home.localhost",
-            "Tailscale · 家里",
-            "8000",
-            RegistryRuleRuntimeState::Running,
-        ),
-        registry_rule(
-            "postgres-main",
-            "PostgreSQL Main",
-            "pg.home.localhost",
-            "SSH · 家庭宽带",
-            "5432",
-            RegistryRuleRuntimeState::Recoverable,
-        ),
-        registry_rule(
-            "redis-cache",
-            "Redis Cache",
-            "redis.home.localhost",
-            "SSH · 家庭宽带",
-            "6379",
-            RegistryRuleRuntimeState::Running,
-        ),
-        registry_rule(
-            "go-microservice",
-            "Go Microservice",
-            "go.home.localhost",
-            "SSH · 家庭宽带",
-            "8081",
-            RegistryRuleRuntimeState::Running,
-        ),
-        registry_rule(
-            "nextjs-app",
-            "Next.js App",
-            "next.home.localhost",
-            "Tailscale · 家里",
-            "3001",
-            RegistryRuleRuntimeState::Running,
-        ),
-        registry_rule(
-            "rabbitmq",
-            "RabbitMQ",
-            "mq.home.localhost",
-            "SSH · 家庭宽带",
-            "5672 + 15672",
-            RegistryRuleRuntimeState::Error,
-        ),
-        registry_rule(
-            "elasticsearch",
-            "ElasticSearch",
-            "es.home.localhost",
-            "SSH · 家庭宽带",
-            "9200",
-            RegistryRuleRuntimeState::Recoverable,
-        ),
-        registry_rule(
-            "kibana",
-            "Kibana",
-            "kibana.home.localhost",
-            "SSH · 家庭宽带",
-            "5601",
-            RegistryRuleRuntimeState::Recoverable,
-        ),
-    ]
-}
-
-fn registry_rule(
-    slug: &str,
-    service_name: &str,
-    alias: &str,
-    provider_label: &str,
-    port_summary: &str,
-    runtime_state: RegistryRuleRuntimeState,
-) -> RegistryRule {
+fn registry_rule_from_domain(snapshot: &ConfigurationSnapshot, rule: &DomainRule) -> RegistryRule {
     RegistryRule {
-        id: format!("rule-{slug}"),
-        service_name: service_name.to_string(),
-        alias: alias.to_string(),
-        provider_label: provider_label.to_string(),
-        port_summary: port_summary.to_string(),
-        runtime_state,
+        id: rule.id.to_string(),
+        service_name: rule.name.clone(),
+        alias: rule
+            .alias
+            .as_ref()
+            .map(|alias| alias.hostname.clone())
+            .unwrap_or_default(),
+        provider_label: provider_label(snapshot, &rule.provider_target_id),
+        port_summary: port_summary(rule),
+        runtime_state: RegistryRuleRuntimeState::Stopped,
+        provider_target_id: rule.provider_target_id.to_string(),
+        remote_host: rule.remote_host.clone(),
+        main_local_port: rule.main_port.local_port,
+        main_remote_host: rule.main_port.remote_host.clone(),
+        main_remote_port: rule.main_port.remote_port,
+        secondary_ports: rule
+            .secondary_ports
+            .iter()
+            .map(|mapping| RegistryPortMapping {
+                local_port: mapping.local_port,
+                remote_host: mapping.remote_host.clone(),
+                remote_port: mapping.remote_port,
+            })
+            .collect(),
+        kind: rule.kind.clone(),
+        tags: rule.tags.clone(),
+        notes: rule.notes.clone(),
     }
+}
+
+fn host_endpoint(host: &DomainHost) -> String {
+    let mut endpoint = String::new();
+
+    if let Some(user) = &host.user {
+        if !user.trim().is_empty() {
+            endpoint.push_str(user.trim());
+            endpoint.push('@');
+        }
+    }
+
+    endpoint.push_str(host.address.trim());
+
+    if let Some(port) = host.port.filter(|port| *port != 22) {
+        endpoint.push(':');
+        endpoint.push_str(&port.to_string());
+    }
+
+    endpoint
+}
+
+fn provider_label(snapshot: &ConfigurationSnapshot, target_id: &ProviderTargetId) -> String {
+    snapshot
+        .hosts
+        .iter()
+        .flat_map(|host| host.provider_targets.iter())
+        .find(|target| target.id == *target_id)
+        .map(|target| target.label.clone())
+        .unwrap_or_else(|| "未命名链路".to_string())
+}
+
+fn port_summary(rule: &DomainRule) -> String {
+    let mut ports = vec![rule.main_port.local_port.to_string()];
+    ports.extend(
+        rule.secondary_ports
+            .iter()
+            .map(|mapping| mapping.local_port.to_string()),
+    );
+    ports.join(" + ")
+}
+
+fn validate_registry_host_draft(draft: &RegistryHostDraft) -> Result<(), Box<BridgeError>> {
+    if draft.name.trim().is_empty() {
+        return Err(BridgeError::registry_validation(
+            "资源分组名称不能为空",
+            Some("host.name must not be empty.".to_string()),
+        )
+        .into());
+    }
+
+    if draft.address.trim().is_empty() {
+        return Err(BridgeError::registry_validation(
+            "主机地址不能为空",
+            Some("host.address must not be empty.".to_string()),
+        )
+        .into());
+    }
+
+    if draft.provider_targets.is_empty() {
+        return Err(BridgeError::registry_validation(
+            "至少需要一个 provider target",
+            Some("host.provider_targets must include at least one target.".to_string()),
+        )
+        .into());
+    }
+
+    for target in &draft.provider_targets {
+        if target.label.trim().is_empty() {
+            return Err(BridgeError::registry_validation(
+                "provider target 标签不能为空",
+                Some("provider_target.label must not be empty.".to_string()),
+            )
+            .into());
+        }
+
+        if target.target_address.trim().is_empty() {
+            return Err(BridgeError::registry_validation(
+                "provider target 地址不能为空",
+                Some("provider_target.target_address must not be empty.".to_string()),
+            )
+            .into());
+        }
+
+        if target.target_port == Some(0) {
+            return Err(BridgeError::registry_validation(
+                "provider target 端口无效",
+                Some("provider_target.target_port must be between 1 and 65535.".to_string()),
+            )
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_registry_rule_draft(draft: &RegistryRuleDraft) -> Result<(), Box<BridgeError>> {
+    if draft.host_id.trim().is_empty() {
+        return Err(BridgeError::registry_validation(
+            "规则缺少所属主机",
+            Some("rule.host_id must not be empty.".to_string()),
+        )
+        .into());
+    }
+
+    if draft.service_name.trim().is_empty() {
+        return Err(BridgeError::registry_validation(
+            "规则名称不能为空",
+            Some("rule.service_name must not be empty.".to_string()),
+        )
+        .into());
+    }
+
+    if draft.provider_target_id.trim().is_empty() {
+        return Err(BridgeError::registry_validation(
+            "规则缺少 provider target",
+            Some("rule.provider_target_id must not be empty.".to_string()),
+        )
+        .into());
+    }
+
+    if draft.remote_host.trim().is_empty() || draft.main_remote_host.trim().is_empty() {
+        return Err(BridgeError::registry_validation(
+            "远端地址不能为空",
+            Some("rule.remote_host and rule.main_remote_host must not be empty.".to_string()),
+        )
+        .into());
+    }
+
+    if draft.main_local_port == 0 || draft.main_remote_port == 0 {
+        return Err(BridgeError::registry_validation(
+            "主端口映射无效",
+            Some("main port mapping must use ports between 1 and 65535.".to_string()),
+        )
+        .into());
+    }
+
+    for mapping in &draft.secondary_ports {
+        if mapping.local_port == 0
+            || mapping.remote_port == 0
+            || mapping.remote_host.trim().is_empty()
+        {
+            return Err(BridgeError::registry_validation(
+                "附属端口映射无效",
+                Some("secondary port mappings must include valid local port, remote host, and remote port.".to_string()),
+            )
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
+fn domain_host_from_draft(draft: RegistryHostDraft) -> Result<DomainHost, Box<BridgeError>> {
+    let host_id = draft
+        .id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| generated_id("host", &draft.name));
+    let host_id = HostId::from(host_id);
+    let provider_targets = draft
+        .provider_targets
+        .into_iter()
+        .map(|target| domain_provider_target_from_draft(&host_id, target))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(DomainHost {
+        id: host_id,
+        name: draft.name.trim().to_string(),
+        address: draft.address.trim().to_string(),
+        port: draft.port.filter(|port| *port != 0),
+        user: trimmed_option(draft.user),
+        tags: trimmed_vec(draft.tags),
+        os_family: domain_os_family_from_registry(draft.os_hint),
+        os_distro: trimmed_option(draft.os_distro),
+        status_hint: domain_host_status_from_registry(draft.status),
+        provider_targets,
+    })
+}
+
+fn domain_provider_target_from_draft(
+    host_id: &HostId,
+    draft: RegistryProviderTargetDraft,
+) -> Result<DomainProviderTarget, Box<BridgeError>> {
+    let target_id = draft
+        .id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| generated_id("target", &draft.label));
+
+    Ok(DomainProviderTarget {
+        id: ProviderTargetId::from(target_id),
+        host_id: host_id.clone(),
+        target_type: domain_provider_kind_from_registry(draft.kind),
+        label: draft.label.trim().to_string(),
+        target_address: draft.target_address.trim().to_string(),
+        target_port: draft.target_port.filter(|port| *port != 0),
+        auth_ref: None,
+        meta: Metadata::new(),
+    })
+}
+
+fn domain_rule_from_draft(draft: RegistryRuleDraft) -> Result<DomainRule, Box<BridgeError>> {
+    let rule_id = draft
+        .id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| generated_id("rule", &draft.service_name));
+    let rule_id = RuleId::from(rule_id);
+
+    Ok(DomainRule {
+        id: rule_id.clone(),
+        host_id: HostId::from(draft.host_id.trim().to_string()),
+        name: draft.service_name.trim().to_string(),
+        alias: trimmed_option(draft.alias).map(|alias| LocalAlias {
+            hostname: alias,
+            rule_id: rule_id.clone(),
+            generated: false,
+            editable: true,
+        }),
+        provider_target_id: ProviderTargetId::from(draft.provider_target_id.trim().to_string()),
+        remote_host: draft.remote_host.trim().to_string(),
+        main_port: PortMapping::new(
+            draft.main_local_port,
+            draft.main_remote_host.trim(),
+            draft.main_remote_port,
+        ),
+        secondary_ports: draft
+            .secondary_ports
+            .into_iter()
+            .map(|mapping| {
+                PortMapping::new(
+                    mapping.local_port,
+                    mapping.remote_host.trim(),
+                    mapping.remote_port,
+                )
+            })
+            .collect(),
+        kind: trimmed_option(draft.kind),
+        icon_hint: None,
+        tags: trimmed_vec(draft.tags),
+        notes: trimmed_option(draft.notes),
+    })
+}
+
+fn trimmed_option(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn trimmed_vec(values: Vec<String>) -> Vec<String> {
+    values
+        .into_iter()
+        .filter_map(|value| {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+        .collect()
+}
+
+fn generated_id(prefix: &str, seed: &str) -> String {
+    let slug = seed
+        .chars()
+        .flat_map(|character| character.to_lowercase())
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    let slug = if slug.is_empty() {
+        prefix.to_string()
+    } else {
+        slug
+    };
+
+    format!("{prefix}-{slug}-{}", current_epoch_millis())
+}
+
+fn registry_host_status_from_hint(hint: &HostStatusHint) -> RegistryHostStatus {
+    match hint {
+        HostStatusHint::Unknown => RegistryHostStatus::Unknown,
+        HostStatusHint::Online => RegistryHostStatus::Online,
+        HostStatusHint::Offline => RegistryHostStatus::Offline,
+    }
+}
+
+fn domain_host_status_from_registry(status: RegistryHostStatus) -> HostStatusHint {
+    match status {
+        RegistryHostStatus::Unknown => HostStatusHint::Unknown,
+        RegistryHostStatus::Online => HostStatusHint::Online,
+        RegistryHostStatus::Offline => HostStatusHint::Offline,
+    }
+}
+
+fn registry_host_os_hint_from_domain(host: &DomainHost) -> RegistryHostOsHint {
+    match host.os_family {
+        OsFamily::MacOS => RegistryHostOsHint::Macos,
+        OsFamily::Windows => RegistryHostOsHint::Windows,
+        OsFamily::Linux => {
+            let distro = host
+                .os_distro
+                .as_deref()
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            if distro.contains("ubuntu") {
+                RegistryHostOsHint::Ubuntu
+            } else if distro.contains("raspbian") || distro.contains("raspberry") {
+                RegistryHostOsHint::RaspberryPi
+            } else {
+                RegistryHostOsHint::Linux
+            }
+        }
+        OsFamily::Unknown => RegistryHostOsHint::Unknown,
+    }
+}
+
+fn domain_os_family_from_registry(os_hint: RegistryHostOsHint) -> OsFamily {
+    match os_hint {
+        RegistryHostOsHint::Macos => OsFamily::MacOS,
+        RegistryHostOsHint::Ubuntu
+        | RegistryHostOsHint::Linux
+        | RegistryHostOsHint::RaspberryPi => OsFamily::Linux,
+        RegistryHostOsHint::Windows => OsFamily::Windows,
+        RegistryHostOsHint::Unknown => OsFamily::Unknown,
+    }
+}
+
+fn registry_provider_kind_from_domain(kind: &ProviderTargetType) -> RegistryProviderKind {
+    match kind {
+        ProviderTargetType::Ssh => RegistryProviderKind::Ssh,
+        ProviderTargetType::Tailscale => RegistryProviderKind::Tailscale,
+        ProviderTargetType::Other(_) => RegistryProviderKind::Ssh,
+    }
+}
+
+fn domain_provider_kind_from_registry(kind: RegistryProviderKind) -> ProviderTargetType {
+    match kind {
+        RegistryProviderKind::Ssh => ProviderTargetType::Ssh,
+        RegistryProviderKind::Tailscale => ProviderTargetType::Tailscale,
+    }
+}
+
+fn storage_error_to_bridge(error: StorageError) -> Box<BridgeError> {
+    match error {
+        StorageError::Validation(validation) => Box::new(validation_error_to_bridge(validation)),
+        StorageError::Sqlite(error) => Box::new(BridgeError::storage_failure(
+            "RelayDock 本地存储写入失败",
+            Some(error.to_string()),
+        )),
+        StorageError::Json(error) => Box::new(BridgeError::internal(
+            "RelayDock 存储数据无法序列化",
+            Some(error.to_string()),
+        )),
+    }
+}
+
+fn validation_error_to_bridge(error: StorageValidationError) -> BridgeError {
+    BridgeError::registry_validation("资源登记配置校验失败", Some(error.to_string()))
+}
+
+fn current_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(DEMO_REFRESHED_AT_EPOCH_SECONDS)
+}
+
+fn current_epoch_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(u128::from(DEMO_REFRESHED_AT_EPOCH_SECONDS) * 1000)
 }
 
 fn demo_now_epoch_seconds() -> u64 {
@@ -1407,6 +1936,77 @@ mod tests {
             owner_type: PortOwnerType::LocalProcess,
             owner_ref: None,
             killable: true,
+        }
+    }
+
+    fn sample_configuration() -> ConfigurationSnapshot {
+        let host_id = HostId::from("host-home");
+        let ssh_target = DomainProviderTarget {
+            id: ProviderTargetId::from("target-home-ssh"),
+            host_id: host_id.clone(),
+            target_type: ProviderTargetType::Ssh,
+            label: "SSH · 家".to_string(),
+            target_address: "192.168.1.5".to_string(),
+            target_port: Some(22),
+            auth_ref: None,
+            meta: Metadata::new(),
+        };
+        let tailscale_target = DomainProviderTarget {
+            id: ProviderTargetId::from("target-home-ts"),
+            host_id: host_id.clone(),
+            target_type: ProviderTargetType::Tailscale,
+            label: "Tailscale · 家里".to_string(),
+            target_address: "100.64.0.5".to_string(),
+            target_port: None,
+            auth_ref: None,
+            meta: Metadata::new(),
+        };
+        let rule_id = RuleId::from("rule-react");
+
+        ConfigurationSnapshot {
+            hosts: vec![DomainHost {
+                id: host_id.clone(),
+                name: "Mac mini (M2) - 家".to_string(),
+                address: "192.168.1.5".to_string(),
+                port: Some(22),
+                user: Some("admin".to_string()),
+                tags: vec!["home".to_string()],
+                os_family: OsFamily::MacOS,
+                os_distro: None,
+                status_hint: HostStatusHint::Online,
+                provider_targets: vec![ssh_target.clone(), tailscale_target.clone()],
+            }],
+            rules: vec![DomainRule {
+                id: rule_id.clone(),
+                host_id: host_id.clone(),
+                name: "React 前端".to_string(),
+                alias: Some(LocalAlias {
+                    hostname: "react.home.localhost".to_string(),
+                    rule_id,
+                    generated: true,
+                    editable: true,
+                }),
+                provider_target_id: tailscale_target.id.clone(),
+                remote_host: "127.0.0.1".to_string(),
+                main_port: PortMapping::new(3000, "127.0.0.1", 3000),
+                secondary_ports: vec![PortMapping::new(3001, "127.0.0.1", 3001)],
+                kind: Some("web".to_string()),
+                icon_hint: None,
+                tags: vec!["frontend".to_string()],
+                notes: Some("sample".to_string()),
+            }],
+            presets: vec![DomainPreset {
+                id: "preset-home".into(),
+                name: "日常开发".to_string(),
+                host_id,
+                base_preset_id: None,
+                items: vec![crate::domain::PresetItem {
+                    rule_id: "rule-react".into(),
+                    provider_target_override: Some("target-home-ssh".into()),
+                    local_port_overrides: Vec::new(),
+                }],
+                description: None,
+            }],
         }
     }
 
@@ -1555,12 +2155,12 @@ mod tests {
                 && row.port_summary == "15432 -> 5432"
         }));
         assert_eq!(
-            load_registry_snapshot().hosts[0]
+            registry_snapshot_from_configuration(&sample_configuration(), None).hosts[0]
                 .rules
                 .iter()
-                .find(|rule| rule.id == "rule-postgres-main")
+                .find(|rule| rule.id == "rule-react")
                 .map(|rule| rule.port_summary.as_str()),
-            Some("5432")
+            Some("3000 + 3001")
         );
     }
 
@@ -1613,16 +2213,140 @@ mod tests {
 
         assert_eq!(json["ok"], true);
         assert_eq!(json["result"]["type"], "registry_snapshot");
-        assert_eq!(json["result"]["hosts"].as_array().map(Vec::len), Some(12));
-        assert_eq!(json["result"]["selected_host_id"], "host-home-mac-mini");
+        assert_eq!(json["result"]["hosts"].as_array().map(Vec::len), Some(0));
+        assert_eq!(json["result"]["selected_host_id"], "");
+    }
+
+    #[test]
+    fn storage_backed_registry_snapshot_projects_saved_configuration() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration();
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+
+        let snapshot = load_registry_snapshot_from_store(&store).expect("snapshot loads");
+
+        assert_eq!(snapshot.hosts.len(), 1);
+        assert_eq!(snapshot.selected_host_id, "host-home");
+        assert_eq!(snapshot.hosts[0].provider_targets.len(), 2);
+        assert_eq!(snapshot.hosts[0].rules[0].port_summary, "3000 + 3001");
         assert_eq!(
-            json["result"]["hosts"][0]["rules"].as_array().map(Vec::len),
-            Some(9)
+            snapshot.hosts[0].rules[0].runtime_state,
+            RegistryRuleRuntimeState::Stopped
         );
         assert_eq!(
-            json["result"]["hosts"][0]["presets"][1]["derived_from"],
-            "日常开发 (基础)"
+            snapshot.hosts[0].presets[0].rules[0].target_label,
+            "SSH · 家"
         );
+    }
+
+    #[test]
+    fn save_registry_host_to_store_bootstraps_and_persists_first_host() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let snapshot = save_registry_host_to_store(
+            &mut store,
+            SaveRegistryHostCommand {
+                host: RegistryHostDraft {
+                    id: None,
+                    name: "Mac Studio".to_string(),
+                    address: "10.0.4.5".to_string(),
+                    port: Some(22),
+                    user: Some("admin".to_string()),
+                    tags: vec!["office".to_string()],
+                    os_hint: RegistryHostOsHint::Macos,
+                    os_distro: None,
+                    status: RegistryHostStatus::Online,
+                    provider_targets: vec![RegistryProviderTargetDraft {
+                        id: None,
+                        label: "SSH · 办公室".to_string(),
+                        kind: RegistryProviderKind::Ssh,
+                        target_address: "10.0.4.5".to_string(),
+                        target_port: Some(22),
+                    }],
+                },
+            },
+        )
+        .expect("host saves");
+
+        assert_eq!(snapshot.hosts.len(), 1);
+        assert_eq!(snapshot.hosts[0].name, "Mac Studio");
+        assert_eq!(snapshot.hosts[0].provider_targets[0].label, "SSH · 办公室");
+        assert_eq!(
+            store
+                .load_configuration()
+                .expect("configuration loads")
+                .expect("configuration exists")
+                .hosts[0]
+                .name,
+            "Mac Studio"
+        );
+    }
+
+    #[test]
+    fn save_registry_rule_to_store_updates_rule_and_projects_new_summary() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration();
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+
+        let snapshot = save_registry_rule_to_store(
+            &mut store,
+            SaveRegistryRuleCommand {
+                rule: RegistryRuleDraft {
+                    id: Some("rule-react".to_string()),
+                    host_id: "host-home".to_string(),
+                    service_name: "React 前端".to_string(),
+                    alias: Some("react.office.localhost".to_string()),
+                    provider_target_id: "target-home-ssh".to_string(),
+                    remote_host: "127.0.0.1".to_string(),
+                    main_local_port: 4300,
+                    main_remote_host: "127.0.0.1".to_string(),
+                    main_remote_port: 3000,
+                    secondary_ports: vec![RegistryPortMapping {
+                        local_port: 4301,
+                        remote_host: "127.0.0.1".to_string(),
+                        remote_port: 3001,
+                    }],
+                    kind: Some("web".to_string()),
+                    tags: vec!["frontend".to_string(), "office".to_string()],
+                    notes: Some("updated".to_string()),
+                },
+            },
+        )
+        .expect("rule saves");
+
+        let rule = &snapshot.hosts[0].rules[0];
+        assert_eq!(rule.alias, "react.office.localhost");
+        assert_eq!(rule.provider_label, "SSH · 家");
+        assert_eq!(rule.port_summary, "4300 + 4301");
+        assert_eq!(rule.main_local_port, 4300);
+        assert_eq!(rule.secondary_ports.len(), 1);
+    }
+
+    #[test]
+    fn invalid_registry_host_draft_returns_structured_validation_error() {
+        let error = save_registry_host_to_store(
+            &mut RelayDockStore::in_memory().expect("store opens"),
+            SaveRegistryHostCommand {
+                host: RegistryHostDraft {
+                    id: None,
+                    name: "".to_string(),
+                    address: "".to_string(),
+                    port: Some(22),
+                    user: None,
+                    tags: Vec::new(),
+                    os_hint: RegistryHostOsHint::Macos,
+                    os_distro: None,
+                    status: RegistryHostStatus::Online,
+                    provider_targets: Vec::new(),
+                },
+            },
+        )
+        .expect_err("invalid host draft must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::RegistryValidationFailed);
     }
 
     #[test]

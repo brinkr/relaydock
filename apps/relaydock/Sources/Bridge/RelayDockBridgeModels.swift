@@ -4,6 +4,8 @@ enum RelayDockBridgeCommand: Encodable {
     case checkPortClaim(CheckPortClaimCommand)
     case loadRunRecoverySnapshot
     case loadRegistrySnapshot
+    case saveRegistryHost(SaveRegistryHostCommand)
+    case saveRegistryRule(SaveRegistryRuleCommand)
     case startDemoRule(DemoRuleActionCommand)
     case retryDemoRuntime(DemoRuntimeActionCommand)
     case stopDemoRuntime(DemoRuntimeActionCommand)
@@ -14,6 +16,8 @@ enum RelayDockBridgeCommand: Encodable {
         case command
         case claim
         case knownUsages = "known_usages"
+        case host
+        case rule
         case ruleId = "rule_id"
         case runtimeId = "runtime_id"
         case recoveryId = "recovery_id"
@@ -33,6 +37,12 @@ enum RelayDockBridgeCommand: Encodable {
             try container.encode("load_run_recovery_snapshot", forKey: .command)
         case .loadRegistrySnapshot:
             try container.encode("load_registry_snapshot", forKey: .command)
+        case let .saveRegistryHost(command):
+            try container.encode("save_registry_host", forKey: .command)
+            try container.encode(command.host, forKey: .host)
+        case let .saveRegistryRule(command):
+            try container.encode("save_registry_rule", forKey: .command)
+            try container.encode(command.rule, forKey: .rule)
         case let .startDemoRule(command):
             try container.encode("start_demo_rule", forKey: .command)
             try container.encode(command.ruleId, forKey: .ruleId)
@@ -82,6 +92,57 @@ struct DemoLocalPortOverrideCommand: Codable, Equatable {
 struct DemoRecoveryActionCommand: Codable, Equatable {
     var recoveryId: String
     var snapshot: RunRecoverySnapshotResult
+}
+
+struct SaveRegistryHostCommand: Codable, Equatable {
+    var host: RegistryHostDraft
+}
+
+struct SaveRegistryRuleCommand: Codable, Equatable {
+    var rule: RegistryRuleDraft
+}
+
+struct RegistryHostDraft: Codable, Equatable {
+    var id: String?
+    var name: String
+    var address: String
+    var port: UInt16?
+    var user: String?
+    var tags: [String]
+    var osHint: RegistryHostOsHint
+    var osDistro: String?
+    var status: RegistryHostStatus
+    var providerTargets: [RegistryProviderTargetDraft]
+}
+
+struct RegistryProviderTargetDraft: Codable, Equatable, Identifiable {
+    var id: String?
+    var label: String
+    var kind: RegistryProviderKind
+    var targetAddress: String
+    var targetPort: UInt16?
+
+    var identity: String {
+        id ?? [label, targetAddress, kind.rawValue].joined(separator: "::")
+    }
+
+    var stableId: String { identity }
+}
+
+struct RegistryRuleDraft: Codable, Equatable {
+    var id: String?
+    var hostId: String
+    var serviceName: String
+    var alias: String?
+    var providerTargetId: String
+    var remoteHost: String
+    var mainLocalPort: UInt16
+    var mainRemoteHost: String
+    var mainRemotePort: UInt16
+    var secondaryPorts: [RegistryPortMapping]
+    var kind: String?
+    var tags: [String]
+    var notes: String?
 }
 
 struct BridgeResponse: Decodable, Equatable {
@@ -213,12 +274,18 @@ struct RegistryHost: Codable, Equatable, Identifiable {
     var endpoint: String
     var status: RegistryHostStatus
     var osHint: RegistryHostOsHint
+    var address: String
+    var port: UInt16?
+    var user: String?
+    var tags: [String]
+    var osDistro: String?
     var providerTargets: [RegistryProviderTarget]
     var presets: [RegistryPreset]
     var rules: [RegistryRule]
 }
 
 enum RegistryHostStatus: String, Codable {
+    case unknown
     case online
     case offline
 }
@@ -229,12 +296,15 @@ enum RegistryHostOsHint: String, Codable {
     case windows
     case linux
     case raspberryPi = "raspberry_pi"
+    case unknown
 }
 
 struct RegistryProviderTarget: Codable, Equatable, Identifiable {
     var id: String
     var label: String
     var kind: RegistryProviderKind
+    var targetAddress: String
+    var targetPort: UInt16?
 }
 
 enum RegistryProviderKind: String, Codable {
@@ -261,6 +331,25 @@ struct RegistryRule: Codable, Equatable, Identifiable {
     var providerLabel: String
     var portSummary: String
     var runtimeState: RegistryRuleRuntimeState
+    var providerTargetId: String
+    var remoteHost: String
+    var mainLocalPort: UInt16
+    var mainRemoteHost: String
+    var mainRemotePort: UInt16
+    var secondaryPorts: [RegistryPortMapping]
+    var kind: String?
+    var tags: [String]
+    var notes: String?
+}
+
+struct RegistryPortMapping: Codable, Equatable, Identifiable {
+    var localPort: UInt16
+    var remoteHost: String
+    var remotePort: UInt16
+
+    var id: String {
+        "\(localPort)-\(remoteHost)-\(remotePort)"
+    }
 }
 
 enum RegistryRuleRuntimeState: String, Codable {
@@ -319,6 +408,8 @@ enum BridgeErrorCode: String, Codable {
     case invalidCommand = "invalid_command"
     case internalError = "internal_error"
     case invalidDemoAction = "invalid_demo_action"
+    case registryValidationFailed = "registry_validation_failed"
+    case storageFailed = "storage_failed"
     case processFailed = "process_failed"
     case responseDecodeFailed = "response_decode_failed"
 }
