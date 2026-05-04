@@ -3,7 +3,7 @@
   "name": "storage-recovery-foundation",
   "title": "Implement Storage And Recovery Foundation",
   "description": "Design and implement local SQLite-backed configuration/runtime persistence and recovery collection foundations.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

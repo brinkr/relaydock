@@ -18,3 +18,76 @@ Diagnostics should be structured enough for:
 - log filtering
 - future CLI/agent queries
 - conflict diagnosis
+
+## Storage Foundation
+
+RelayDock's first storage layer lives in `relaydock-core` and uses SQLite.
+
+### 1. Scope / Trigger
+
+- Trigger: provider and recovery work need a durable local state boundary before process orchestration starts.
+- Owner: Rust core owns SQLite schema, migrations, validation, runtime snapshots, and recovery collection persistence.
+- Platform boundary: Swift/AppKit may choose the database file location and handle Keychain access, but Rust owns what ordinary SQLite may store.
+
+### 2. Signatures
+
+Rust entrypoints:
+
+```rust
+RelayDockStore::open(path)
+RelayDockStore::in_memory()
+store.save_configuration(&ConfigurationSnapshot { ... })
+store.save_runtime_snapshot(&RuntimeSnapshot { ... })
+store.save_recovery_collection(&RecoveryCollection { ... })
+```
+
+### 3. Contracts
+
+- Schema version is tracked by `PRAGMA user_version` and `schema_migrations`.
+- `ConfigurationSnapshot` stores saved `Host`, `Rule`, and `Preset` configuration.
+- `RuntimeSnapshot` stores running instances and session-scoped `LocalPortOverride` records.
+- `RecoveryCollection` stores interrupted-but-recoverable runtime items.
+- Sensitive credentials must not be stored in SQLite metadata. Store references such as Keychain refs instead.
+- Session-scoped local port overrides must not mutate saved `Rule.main_port` or `Rule.secondary_ports`.
+
+### 4. Validation & Error Matrix
+
+- Duplicate host/rule/preset/runtime IDs -> validation error.
+- Rule references a missing host or provider target -> validation error.
+- Rule references a provider target from another host -> validation error.
+- Provider target metadata includes credential-like keys (`password`, `private_key`, `secret`, `token`, `credential`) -> validation error.
+- Runtime override references a missing runtime instance -> validation error.
+- Duplicate recovery item for `(rule_id, provider_target_id)` -> validation error.
+
+### 5. Good/Base/Bad Cases
+
+- Good: runtime override changes `RuntimeInstance.local_bindings` and persists as `LocalPortOverride { persisted: false }`.
+- Base: configuration snapshot round-trips without runtime state.
+- Bad: saving a provider target metadata field such as `password = "plain-text"`.
+
+### 6. Tests Required
+
+- Migration creates schema version and migration row.
+- Configuration snapshot round-trips.
+- Runtime snapshot round-trips with local port override while saved rule ports stay unchanged.
+- Recovery collection round-trips and supports clearing one item.
+- Validation rejects credential metadata, cross-host provider targets, missing runtime override owners, and duplicate recovery items.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```rust
+rule.main_port.local_port = 3001; // from a one-time conflict workaround
+store.save_configuration(&snapshot)?;
+```
+
+Correct:
+
+```rust
+let override_record = runtime.apply_local_port_override(3000, 3001, OverrideReason::AutoIncrement)?;
+store.save_runtime_snapshot(&RuntimeSnapshot {
+    instances: vec![runtime],
+    local_port_overrides: vec![override_record],
+})?;
+```
