@@ -25,6 +25,7 @@ struct RelayDockShellView: View {
         }
         .frame(minWidth: 920, minHeight: 620)
         .background(RelayDockColor.windowBackground)
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     @ViewBuilder

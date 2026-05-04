@@ -13,6 +13,7 @@ final class RelayDockWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
+        window.styleMask.insert(.fullSizeContentView)
         window.toolbarStyle = .unifiedCompact
 
         self.init(window: window)

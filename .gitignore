@@ -31,3 +31,4 @@ target/
 # Misc cache
 .cache/
 .turbo/
+artifacts/
