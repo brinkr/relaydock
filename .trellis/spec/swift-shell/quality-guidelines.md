@@ -8,5 +8,6 @@
 - Provide accessible labels for icon-only controls.
 - Avoid color-only status meaning; include text or stable icons.
 - After UI shell changes, run `scripts/visual-qa/relaydock-window-snapshot.sh` and inspect the screenshot before completing the task.
-- The main content must extend into the transparent titlebar area; do not leave a blank system titlebar strip above the toolbar.
+- Use native AppKit titlebar/toolbar semantics for window-level actions. Do not replace the titlebar with a thick SwiftUI-drawn toolbar band.
+- Visual QA must inspect the actual top region of the screenshot: search/actions should read as titlebar toolbar controls, and the sidebar/content must not start below an awkward blank strip.
 - For native screenshot automation, launch RelayDock through a temporary `.app` bundle instead of the raw SwiftPM binary so macOS activation, Accessibility, Screen Recording, and Computer Use can identify the app consistently.

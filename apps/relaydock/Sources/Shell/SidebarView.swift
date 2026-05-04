@@ -6,7 +6,7 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer()
-                .frame(height: 52)
+                .frame(height: 14)
 
             SidebarGroupTitle("监控与工作流")
 

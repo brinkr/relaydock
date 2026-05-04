@@ -8,11 +8,6 @@ struct RelayDockShellView: View {
             SidebarView(selection: $viewModel.selection)
 
             VStack(spacing: 0) {
-                ToolbarView(selection: viewModel.selection)
-                    .frame(height: 52)
-
-                Divider()
-
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(RelayDockColor.contentBackground)
@@ -25,7 +20,6 @@ struct RelayDockShellView: View {
         }
         .frame(minWidth: 920, minHeight: 620)
         .background(RelayDockColor.windowBackground)
-        .ignoresSafeArea(.container, edges: .top)
     }
 
     @ViewBuilder

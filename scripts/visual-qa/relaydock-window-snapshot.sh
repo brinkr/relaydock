@@ -171,7 +171,12 @@ read_window_rect() {
 
   set +e
   query_output="$(
-    osascript - "${APP_PID}" <<'APPLESCRIPT' 2>&1
+    python3 - "${APP_PID}" <<'PYTHON' 2>&1
+import subprocess
+import sys
+
+app_pid = sys.argv[1]
+script = r'''
 on run argv
   set appPid to (item 1 of argv) as integer
 
@@ -188,10 +193,38 @@ on run argv
     end tell
   end tell
 end run
-APPLESCRIPT
+'''
+
+try:
+    result = subprocess.run(
+        ["osascript", "-", app_pid],
+        input=script,
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
+    )
+except subprocess.TimeoutExpired as error:
+    output = ""
+    if error.stdout:
+        output += error.stdout
+    if error.stderr:
+        output += error.stderr
+    print(f"QUERY_TIMEOUT:{output.strip()}", end="")
+    sys.exit(0)
+
+output = (result.stdout or "") + (result.stderr or "")
+print(output.strip(), end="")
+sys.exit(result.returncode)
+PYTHON
   )"
   query_status="$?"
   set -e
+
+  if [[ "${query_output}" == QUERY_TIMEOUT:* ]]; then
+    printf '%s\n' "${query_output}"
+    return 0
+  fi
 
   if [[ "${query_status}" != "0" ]]; then
     if [[ "${query_output}" == *"not allowed assistive access"* ]] || [[ "${query_output}" == *"(-25211)"* ]]; then
@@ -204,6 +237,24 @@ APPLESCRIPT
   fi
 
   printf '%s\n' "${query_output}"
+}
+
+capture_window_lookup_fallback() {
+  local reason="$1"
+  local detail="$2"
+
+  {
+    echo "Warning: ${reason}"
+    echo "Falling back to a full-screen screenshot so visual QA still has an inspectable artifact."
+    if [[ -n "${detail}" ]]; then
+      echo "Window query output: ${detail}"
+    fi
+  } >&2
+
+  sleep 1
+  capture_fullscreen_screenshot
+  echo "${OUTPUT_PATH}"
+  exit 0
 }
 
 capture_window_screenshot() {
@@ -272,7 +323,11 @@ while (( SECONDS - LOOKUP_STARTED_AT < WINDOW_LOOKUP_TIMEOUT_SECONDS )); do
   fi
 
   if [[ "${QUERY_RESULT}" == QUERY_FAILED:* ]]; then
-    fail "Window query failed via osascript: ${QUERY_RESULT#QUERY_FAILED:}"
+    capture_window_lookup_fallback "Window query failed via osascript." "${QUERY_RESULT#QUERY_FAILED:}"
+  fi
+
+  if [[ "${QUERY_RESULT}" == QUERY_TIMEOUT:* ]]; then
+    capture_window_lookup_fallback "Window query timed out via osascript." "${QUERY_RESULT#QUERY_TIMEOUT:}"
   fi
 
   if [[ "${QUERY_RESULT}" =~ ^-?[0-9]+,-?[0-9]+,[0-9]+,[0-9]+$ ]]; then
@@ -285,13 +340,12 @@ done
 
 if [[ -n "${ACCESSIBILITY_DENIED_DETAIL}" ]]; then
   warn_accessibility_fallback "${ACCESSIBILITY_DENIED_DETAIL}"
-  sleep 1
-  capture_fullscreen_screenshot
-  echo "${OUTPUT_PATH}"
-  exit 0
+  capture_window_lookup_fallback "Accessibility permission blocked the RelayDock window rectangle query." "${ACCESSIBILITY_DENIED_DETAIL}"
 fi
 
-[[ -n "${WINDOW_RECT}" ]] || fail "Failed to locate a RelayDock window via osascript within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s."
+if [[ -z "${WINDOW_RECT}" ]]; then
+  capture_window_lookup_fallback "Failed to locate a RelayDock window via osascript within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s." ""
+fi
 
 capture_window_screenshot "${WINDOW_RECT}"
 echo "${OUTPUT_PATH}"
