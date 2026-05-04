@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-05-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~240 | Active |
+| `journal-1.md` | ~273 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-05-05 | Build native diagnostics and preferences workspace | `8ea9039` | `main` |
 | 7 | 2026-05-05 | Wire native UI runtime actions | `0eeb041` | `main` |
 | 6 | 2026-05-05 | Align UI with LocalPort reference | `3e0cef7` | `main` |
 | 5 | 2026-05-05 | Runnable Run Recovery Flow | `3bb778f` | `main` |

@@ -238,3 +238,36 @@ Connected RelayDock's native Run/Recovery and Registry controls to bridge-backed
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Build native diagnostics and preferences workspace
+
+**Date**: 2026-05-05
+**Task**: Build native diagnostics and preferences workspace
+**Branch**: `main`
+
+### Summary
+
+Converted RelayDock's Logs & Diagnostics and Preferences sections from placeholders into native SwiftUI workspaces backed by current run/recovery and registry snapshots. Wired shell snapshot, error, and bridge path context into both pages, added explicit MVP boundary copy for session-local controls, and updated swift-shell UI patterns to preserve those constraints. Verification passed for swift build, git diff --check, and visual QA screenshots covering run/recovery, diagnostics, and preferences.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8ea9039` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
