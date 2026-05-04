@@ -205,3 +205,36 @@ Expanded bridge-backed demo snapshots and native SwiftUI Run/Recovery plus Regis
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Wire native UI runtime actions
+
+**Date**: 2026-05-05
+**Task**: Wire native UI runtime actions
+**Branch**: `main`
+
+### Summary
+
+Connected RelayDock's native Run/Recovery and Registry controls to bridge-backed demo actions. Added retry and temporary local-port override commands in Rust, Swift bridge wrappers, toolbar dispatch, registry filter/sheets, and bridge spec coverage. Verification passed for swift build, cargo fmt --check, cargo test -p relaydock-core, cargo clippy --all-targets -- -D warnings, bridge smoke, and git diff --check. Visual screenshot automation remains blocked by shell Screen Recording permission.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0eeb041` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
