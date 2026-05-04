@@ -172,3 +172,36 @@ Implemented the first bridge-backed Run/Recovery vertical slice. Rust now expose
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Align UI with LocalPort reference
+
+**Date**: 2026-05-05
+**Task**: Align UI with LocalPort reference
+**Branch**: `main`
+
+### Summary
+
+Expanded bridge-backed demo snapshots and native SwiftUI Run/Recovery plus Registry layouts toward the LocalPort reference; hardened visual QA to fail on black screenshots and documented the bridge/QA contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e0cef7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
