@@ -106,3 +106,36 @@ Implemented the first SQLite-backed Rust core storage foundation for configurati
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Add OpenSSH provider foundation
+
+**Date**: 2026-05-05
+**Task**: Add OpenSSH provider foundation
+**Branch**: `main`
+
+### Summary
+
+Implemented the Rust core OpenSSH provider foundation: structured SSH command launch plans from Host/Rule/ProviderTarget, process launcher abstraction, status observation, stop-to-recovery behavior, and structured diagnostics for process exits and lifecycle failures.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ef9c798` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
