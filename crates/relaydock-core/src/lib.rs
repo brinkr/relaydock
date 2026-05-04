@@ -7,11 +7,13 @@
 pub mod commands;
 pub mod domain;
 pub mod ports;
+pub mod providers;
 pub mod runtime;
 pub mod storage;
 
 pub use commands::*;
 pub use domain::*;
 pub use ports::*;
+pub use providers::*;
 pub use runtime::*;
 pub use storage::*;
