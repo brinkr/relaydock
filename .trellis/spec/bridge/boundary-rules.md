@@ -110,3 +110,67 @@ Correct registry snapshot request:
 ```json
 {"command": "load_registry_snapshot"}
 ```
+
+## Demo Runtime Action Extension
+
+### 1. Scope / Trigger
+
+- Trigger: Run/Recovery UI needs row-level `retry` and temporary local-port recovery without teaching Swift the runtime transition rules.
+- Scope: deterministic demo bridge only. Real provider/persistence work must replace these with durable runtime commands later.
+
+### 2. Signatures
+
+Rust commands:
+
+```json
+{"command":"retry_demo_runtime","runtime_id":"runtime-rule-rabbitmq","snapshot":{...}}
+{"command":"apply_demo_local_port_override","rule_id":"rule-postgres-main","local_port":15432,"snapshot":{...}}
+```
+
+Swift entrypoints:
+
+```swift
+retryDemoRuntime(runtimeId:snapshot:)
+applyDemoLocalPortOverride(ruleId:localPort:snapshot:)
+```
+
+### 3. Contracts
+
+- Swift submits the last Rust-produced `RunRecoverySnapshotResult`.
+- Rust returns a full next `run_recovery_snapshot`.
+- `retry_demo_runtime` may transition only `reconnecting` or `error` runtime rows to `connected`.
+- `apply_demo_local_port_override` may transition only `recoverable` rows to `connected`.
+- Temporary local-port override updates the returned runtime row only; registry rules must remain unchanged.
+
+### 4. Validation & Error Matrix
+
+- Missing retryable runtime -> `invalid_demo_action` with `affected_runtime_id`.
+- Missing recoverable rule -> `invalid_demo_action` with `affected_rule_id`.
+- `local_port == 0` -> `invalid_demo_action`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: retrying an `error` row clears row error, returns `connected`, and keeps only `stop` as the action.
+- Base: recovering with local port `15432` returns `15432 -> 5432` on the runtime row.
+- Bad: Swift mutates `RegistryRule.portSummary` to represent a temporary runtime override.
+
+### 6. Tests Required
+
+- Rust unit test for retrying an error/reconnecting runtime.
+- Rust unit test that local-port override recovers the runtime row without mutating `load_registry_snapshot`.
+- Swift build must compile bridge models and executor.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```swift
+row.state = .connected
+row.portSummary = "15432 -> 5432"
+```
+
+Correct:
+
+```swift
+try executor.applyDemoLocalPortOverride(ruleId: ruleId, localPort: 15432, snapshot: snapshot)
+```

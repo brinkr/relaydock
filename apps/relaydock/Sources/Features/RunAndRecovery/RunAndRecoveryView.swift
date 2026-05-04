@@ -4,13 +4,16 @@ struct RunAndRecoveryView: View {
     let snapshot: RunRecoverySnapshotResult?
     let isLoading: Bool
     let bridgeError: BridgeErrorInfo?
+    let collapseCommand: RunRecoveryCollapseCommand?
     let onRecover: (String) -> Void
+    let onRetry: (String) -> Void
     let onStop: (String) -> Void
     let onClear: (String) -> Void
-    let onChangeLocalPort: (String) -> Void
+    let onChangeLocalPort: (String, UInt16) -> Void
     let onReload: () -> Void
 
     @State private var collapsedHostIds = Set<String>()
+    @State private var localPortDraft: LocalPortOverrideDraft?
 
     var body: some View {
         ScrollView {
@@ -34,9 +37,12 @@ struct RunAndRecoveryView: View {
                                 }
                             },
                             onRecover: onRecover,
+                            onRetry: onRetry,
                             onStop: onStop,
                             onClear: onClear,
-                            onChangeLocalPort: onChangeLocalPort
+                            onChangeLocalPort: { row in
+                                localPortDraft = LocalPortOverrideDraft(row: row)
+                            }
                         )
                     }
                 } else {
@@ -45,6 +51,30 @@ struct RunAndRecoveryView: View {
             }
         }
         .background(RelayDockColor.contentBackground)
+        .onChange(of: collapseCommand) { _, command in
+            guard let command, let snapshot else {
+                return
+            }
+
+            switch command.kind {
+            case .collapseAll:
+                collapsedHostIds = Set(snapshot.hosts.map(\.id))
+            case .expandAll:
+                collapsedHostIds.removeAll()
+            }
+        }
+        .sheet(item: $localPortDraft) { draft in
+            LocalPortOverrideSheet(
+                draft: draft,
+                onCancel: {
+                    localPortDraft = nil
+                },
+                onApply: { localPort in
+                    onChangeLocalPort(draft.row.ruleId, localPort)
+                    localPortDraft = nil
+                }
+            )
+        }
     }
 }
 
@@ -118,9 +148,10 @@ private struct HostRuntimeGroup: View {
     let isCollapsed: Bool
     let onToggleCollapse: () -> Void
     let onRecover: (String) -> Void
+    let onRetry: (String) -> Void
     let onStop: (String) -> Void
     let onClear: (String) -> Void
-    let onChangeLocalPort: (String) -> Void
+    let onChangeLocalPort: (RunRecoveryRow) -> Void
 
     private var runningCount: Int {
         host.rows.filter { $0.state != .recoverable }.count
@@ -186,10 +217,11 @@ private struct HostRuntimeGroup: View {
                 ForEach(host.rows) { row in
                     RuntimeServiceRow(
                         row: row,
-                        onRecover: onRecover,
-                        onStop: onStop,
-                        onClear: onClear,
-                        onChangeLocalPort: onChangeLocalPort
+                            onRecover: onRecover,
+                            onRetry: onRetry,
+                            onStop: onStop,
+                            onClear: onClear,
+                            onChangeLocalPort: onChangeLocalPort
                     )
                     Divider()
                 }
@@ -201,9 +233,10 @@ private struct HostRuntimeGroup: View {
 private struct RuntimeServiceRow: View {
     let row: RunRecoveryRow
     let onRecover: (String) -> Void
+    let onRetry: (String) -> Void
     let onStop: (String) -> Void
     let onClear: (String) -> Void
-    let onChangeLocalPort: (String) -> Void
+    let onChangeLocalPort: (RunRecoveryRow) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -288,7 +321,7 @@ private struct RuntimeServiceRow: View {
         switch action {
         case .stop, .clear:
             return .destructive
-        case .recover, .changeLocalPort:
+        case .recover, .retry, .changeLocalPort:
             return nil
         }
     }
@@ -297,8 +330,12 @@ private struct RuntimeServiceRow: View {
         switch action {
         case .recover:
             onRecover(row.ruleId)
+        case .retry:
+            if let runtimeId = row.runtimeId {
+                onRetry(runtimeId)
+            }
         case .changeLocalPort:
-            onChangeLocalPort(row.ruleId)
+            onChangeLocalPort(row)
         case .stop:
             if let runtimeId = row.runtimeId {
                 onStop(runtimeId)
@@ -308,6 +345,84 @@ private struct RuntimeServiceRow: View {
                 onClear(recoveryId)
             }
         }
+    }
+}
+
+private struct LocalPortOverrideDraft: Identifiable {
+    let id: String
+    let row: RunRecoveryRow
+    var localPortText: String
+
+    init(row: RunRecoveryRow) {
+        self.id = row.ruleId
+        self.row = row
+        self.localPortText = row.portSummary.firstPortText ?? ""
+    }
+}
+
+private struct LocalPortOverrideSheet: View {
+    @State private var localPortText: String
+
+    let draft: LocalPortOverrideDraft
+    let onCancel: () -> Void
+    let onApply: (UInt16) -> Void
+
+    init(
+        draft: LocalPortOverrideDraft,
+        onCancel: @escaping () -> Void,
+        onApply: @escaping (UInt16) -> Void
+    ) {
+        self.draft = draft
+        self.onCancel = onCancel
+        self.onApply = onApply
+        _localPortText = State(initialValue: draft.localPortText)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("改本地端口")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("\(draft.row.serviceName) · \(draft.row.alias)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Text("本地端口")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 64, alignment: .leading)
+                TextField("例如 15432", text: $localPortText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 140)
+            }
+
+            Text("当前 demo 会用临时端口恢复运行，不写回资源登记规则。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("取消", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("应用并恢复") {
+                    guard let localPort = UInt16(localPortText) else {
+                        return
+                    }
+                    onApply(localPort)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(UInt16(localPortText) == nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+    }
+}
+
+private extension String {
+    var firstPortText: String? {
+        split(whereSeparator: { !$0.isNumber }).first.map(String.init)
     }
 }
 

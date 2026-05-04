@@ -5,8 +5,10 @@ enum RelayDockBridgeCommand: Encodable {
     case loadRunRecoverySnapshot
     case loadRegistrySnapshot
     case startDemoRule(DemoRuleActionCommand)
+    case retryDemoRuntime(DemoRuntimeActionCommand)
     case stopDemoRuntime(DemoRuntimeActionCommand)
     case clearDemoRecoveryItem(DemoRecoveryActionCommand)
+    case applyDemoLocalPortOverride(DemoLocalPortOverrideCommand)
 
     private enum CodingKeys: String, CodingKey {
         case command
@@ -15,6 +17,7 @@ enum RelayDockBridgeCommand: Encodable {
         case ruleId = "rule_id"
         case runtimeId = "runtime_id"
         case recoveryId = "recovery_id"
+        case localPort = "local_port"
         case snapshot
     }
 
@@ -34,6 +37,10 @@ enum RelayDockBridgeCommand: Encodable {
             try container.encode("start_demo_rule", forKey: .command)
             try container.encode(command.ruleId, forKey: .ruleId)
             try container.encode(command.snapshot, forKey: .snapshot)
+        case let .retryDemoRuntime(command):
+            try container.encode("retry_demo_runtime", forKey: .command)
+            try container.encode(command.runtimeId, forKey: .runtimeId)
+            try container.encode(command.snapshot, forKey: .snapshot)
         case let .stopDemoRuntime(command):
             try container.encode("stop_demo_runtime", forKey: .command)
             try container.encode(command.runtimeId, forKey: .runtimeId)
@@ -41,6 +48,11 @@ enum RelayDockBridgeCommand: Encodable {
         case let .clearDemoRecoveryItem(command):
             try container.encode("clear_demo_recovery_item", forKey: .command)
             try container.encode(command.recoveryId, forKey: .recoveryId)
+            try container.encode(command.snapshot, forKey: .snapshot)
+        case let .applyDemoLocalPortOverride(command):
+            try container.encode("apply_demo_local_port_override", forKey: .command)
+            try container.encode(command.ruleId, forKey: .ruleId)
+            try container.encode(command.localPort, forKey: .localPort)
             try container.encode(command.snapshot, forKey: .snapshot)
         }
     }
@@ -58,6 +70,12 @@ struct DemoRuleActionCommand: Codable, Equatable {
 
 struct DemoRuntimeActionCommand: Codable, Equatable {
     var runtimeId: String
+    var snapshot: RunRecoverySnapshotResult
+}
+
+struct DemoLocalPortOverrideCommand: Codable, Equatable {
+    var ruleId: String
+    var localPort: UInt16
     var snapshot: RunRecoverySnapshotResult
 }
 
@@ -160,6 +178,7 @@ struct RunRecoveryAction: Codable, Equatable {
 
 enum RunRecoveryActionKind: String, Codable {
     case recover
+    case retry
     case changeLocalPort = "change_local_port"
     case stop
     case clear

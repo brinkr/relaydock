@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class RelayDockShellViewModel: ObservableObject {
     @Published var selection: RelayDockSection = .runAndRecovery
+    @Published var runRecoveryCollapseCommand: RunRecoveryCollapseCommand?
     @Published private(set) var runRecoverySnapshot: RunRecoverySnapshotResult?
     @Published private(set) var isLoadingRunRecovery = false
     @Published private(set) var runRecoveryError: BridgeErrorInfo?
@@ -82,6 +83,12 @@ final class RelayDockShellViewModel: ObservableObject {
         }
     }
 
+    func retryDemoRuntime(runtimeId: String) {
+        performSnapshotAction { executor, snapshot in
+            try executor.retryDemoRuntime(runtimeId: runtimeId, snapshot: snapshot)
+        }
+    }
+
     func stopDemoRuntime(runtimeId: String) {
         performSnapshotAction { executor, snapshot in
             try executor.stopDemoRuntime(runtimeId: runtimeId, snapshot: snapshot)
@@ -94,17 +101,93 @@ final class RelayDockShellViewModel: ObservableObject {
         }
     }
 
-    func changeLocalPortForDemoRule(ruleId: String) {
-        runRecoveryError = BridgeErrorInfo(
-            code: .invalidDemoAction,
-            summary: "demo 运行流暂未实现本地端口改写",
-            detail: "rule_id=\(ruleId)",
-            affectedPort: nil,
-            affectedRuleId: ruleId,
-            affectedRuntimeId: nil,
-            affectedRecoveryId: nil,
-            suggestedRecovery: "当前垂直切片先覆盖恢复、停止和清除。"
-        )
+    func applyDemoLocalPortOverride(ruleId: String, localPort: UInt16) {
+        performSnapshotAction { executor, snapshot in
+            try executor.applyDemoLocalPortOverride(
+                ruleId: ruleId,
+                localPort: localPort,
+                snapshot: snapshot
+            )
+        }
+    }
+
+    func retryRuntimeForRule(_ ruleId: String) {
+        guard let runtimeId = runRecoverySnapshot?
+            .hosts
+            .flatMap(\.rows)
+            .first(where: { $0.ruleId == ruleId })?
+            .runtimeId else {
+            runRecoveryError = BridgeErrorInfo(
+                code: .invalidDemoAction,
+                summary: "未找到可重试的运行实例",
+                detail: "rule_id=\(ruleId)",
+                affectedPort: nil,
+                affectedRuleId: ruleId,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: "重新读取运行状态后再试。"
+            )
+            return
+        }
+
+        retryDemoRuntime(runtimeId: runtimeId)
+    }
+
+    func stopRuntimeForRule(_ ruleId: String) {
+        guard let runtimeId = runRecoverySnapshot?
+            .hosts
+            .flatMap(\.rows)
+            .first(where: { $0.ruleId == ruleId })?
+            .runtimeId else {
+            runRecoveryError = BridgeErrorInfo(
+                code: .invalidDemoAction,
+                summary: "未找到可停止的运行实例",
+                detail: "rule_id=\(ruleId)",
+                affectedPort: nil,
+                affectedRuleId: ruleId,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: "重新读取运行状态后再试。"
+            )
+            return
+        }
+
+        stopDemoRuntime(runtimeId: runtimeId)
+    }
+
+    func reloadCurrentSection() {
+        switch selection {
+        case .runAndRecovery:
+            loadRunRecoverySnapshot()
+        case .registry:
+            loadRegistrySnapshot()
+        case .logsAndDiagnostics, .preferences:
+            break
+        }
+    }
+
+    func collapseAllRunRecoveryHosts() {
+        runRecoveryCollapseCommand = RunRecoveryCollapseCommand(kind: .collapseAll)
+    }
+
+    func expandAllRunRecoveryHosts() {
+        runRecoveryCollapseCommand = RunRecoveryCollapseCommand(kind: .expandAll)
+    }
+
+    func stopAllRunningDemoRuntimes() {
+        guard let rows = runRecoverySnapshot?.hosts.flatMap(\.rows) else {
+            return
+        }
+
+        rows.compactMap(\.runtimeId).forEach(stopDemoRuntime)
+    }
+
+    func clearAllDemoRecoveryItems() {
+        guard let rows = runRecoverySnapshot?.hosts.flatMap(\.rows) else {
+            return
+        }
+
+        rows.compactMap(\.recoveryId).forEach(clearDemoRecoveryItem)
     }
 
     func loadRegistrySnapshot() {
@@ -188,6 +271,16 @@ final class RelayDockShellViewModel: ObservableObject {
             )
         }
     }
+}
+
+struct RunRecoveryCollapseCommand: Identifiable, Equatable {
+    let id = UUID()
+    var kind: RunRecoveryCollapseCommandKind
+}
+
+enum RunRecoveryCollapseCommandKind: Equatable {
+    case collapseAll
+    case expandAll
 }
 
 enum RelayDockSection: String, CaseIterable, Identifiable {

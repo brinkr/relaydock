@@ -46,6 +46,17 @@ final class RelayDockWindowController: NSWindowController {
     }
 }
 
+extension Notification.Name {
+    static let relayDockToolbarAction = Notification.Name("RelayDockToolbarAction")
+}
+
+enum RelayDockToolbarAction: String {
+    case recheck
+    case collapseAll
+    case stopAll
+    case clearRecovery
+}
+
 @MainActor
 private final class RelayDockToolbarController: NSObject, NSToolbarDelegate {
     private static let shared = RelayDockToolbarController()
@@ -123,5 +134,28 @@ private final class RelayDockToolbarController: NSObject, NSToolbarDelegate {
         return item
     }
 
-    @objc private func toolbarActionPressed(_ sender: NSToolbarItem) {}
+    @objc private func toolbarActionPressed(_ sender: NSToolbarItem) {
+        let action: RelayDockToolbarAction?
+        switch sender.itemIdentifier {
+        case RelayDockToolbarItemIdentifier.recheck:
+            action = .recheck
+        case RelayDockToolbarItemIdentifier.collapseAll:
+            action = .collapseAll
+        case RelayDockToolbarItemIdentifier.stopAll:
+            action = .stopAll
+        case RelayDockToolbarItemIdentifier.clearRecovery:
+            action = .clearRecovery
+        default:
+            action = nil
+        }
+
+        guard let action else {
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .relayDockToolbarAction,
+            object: action.rawValue
+        )
+    }
 }

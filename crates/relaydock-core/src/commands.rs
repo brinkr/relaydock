@@ -10,8 +10,10 @@ pub enum BridgeCommand {
     LoadRunRecoverySnapshot,
     LoadRegistrySnapshot,
     StartDemoRule(DemoRuleActionCommand),
+    RetryDemoRuntime(DemoRuntimeActionCommand),
     StopDemoRuntime(DemoRuntimeActionCommand),
     ClearDemoRecoveryItem(DemoRecoveryActionCommand),
+    ApplyDemoLocalPortOverride(DemoLocalPortOverrideCommand),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +48,13 @@ pub struct DemoRuleActionCommand {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DemoRuntimeActionCommand {
     pub runtime_id: String,
+    pub snapshot: RunRecoverySnapshotResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemoLocalPortOverrideCommand {
+    pub rule_id: String,
+    pub local_port: u16,
     pub snapshot: RunRecoverySnapshotResult,
 }
 
@@ -126,6 +135,7 @@ pub struct RunRecoveryAction {
 #[serde(rename_all = "snake_case")]
 pub enum RunRecoveryActionKind {
     Recover,
+    Retry,
     ChangeLocalPort,
     Stop,
     Clear,
@@ -397,6 +407,9 @@ pub fn execute_bridge_command(
         BridgeCommand::StartDemoRule(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             start_demo_rule(command.snapshot, &command.rule_id),
         )),
+        BridgeCommand::RetryDemoRuntime(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
+            retry_demo_runtime(command.snapshot, &command.runtime_id),
+        )),
         BridgeCommand::StopDemoRuntime(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             stop_demo_runtime(command.snapshot, &command.runtime_id),
         )),
@@ -405,6 +418,13 @@ pub fn execute_bridge_command(
                 clear_demo_recovery_item(command.snapshot, &command.recovery_id),
             ))
         }
+        BridgeCommand::ApplyDemoLocalPortOverride(command) => Ok(
+            BridgeCommandResult::RunRecoverySnapshot(apply_demo_local_port_override(
+                command.snapshot,
+                &command.rule_id,
+                command.local_port,
+            )),
+        ),
     }
 }
 
@@ -498,6 +518,63 @@ pub fn start_demo_rule(
     }
 }
 
+pub fn retry_demo_runtime(
+    snapshot: RunRecoverySnapshotResult,
+    runtime_id: &str,
+) -> RunRecoverySnapshotResult {
+    let mut next_snapshot = snapshot;
+    let mut retried = false;
+    let mut affected_rule_id = None;
+
+    for host in &mut next_snapshot.hosts {
+        if let Some(row) = host.rows.iter_mut().find(|row| {
+            row.runtime_id.as_deref() == Some(runtime_id)
+                && matches!(
+                    row.state,
+                    RunRecoveryRowState::Reconnecting | RunRecoveryRowState::Error
+                )
+        }) {
+            row.state = RunRecoveryRowState::Connected;
+            row.status_text = "运行中".to_string();
+            row.telemetry = Some("刚刚重试 · 4ms · 0次".to_string());
+            row.error = None;
+            row.actions = stop_actions();
+            affected_rule_id = Some(row.rule_id.clone());
+            retried = true;
+            break;
+        }
+    }
+
+    if retried {
+        next_snapshot.recomputed(Some(RunRecoveryActionStatus {
+            ok: true,
+            message: "已重试 demo 转发".to_string(),
+            affected_rule_id,
+            affected_runtime_id: Some(runtime_id.to_string()),
+            affected_recovery_id: None,
+            error: None,
+        }))
+    } else {
+        let error = BridgeError::invalid_demo_action(
+            "Retryable demo runtime was not found",
+            Some(format!(
+                "No reconnecting or error row for runtime_id `{runtime_id}` exists in the submitted snapshot."
+            )),
+            None,
+            Some(runtime_id.to_string()),
+            None,
+        );
+        next_snapshot.recomputed(Some(RunRecoveryActionStatus {
+            ok: false,
+            message: error.summary.clone(),
+            affected_rule_id: None,
+            affected_runtime_id: Some(runtime_id.to_string()),
+            affected_recovery_id: None,
+            error: Some(error),
+        }))
+    }
+}
+
 pub fn stop_demo_runtime(
     snapshot: RunRecoverySnapshotResult,
     runtime_id: &str,
@@ -562,6 +639,91 @@ pub fn stop_demo_runtime(
                 message: error.summary.clone(),
                 affected_rule_id: None,
                 affected_runtime_id: Some(runtime_id.to_string()),
+                affected_recovery_id: None,
+                error: Some(error),
+            }))
+        }
+    }
+}
+
+pub fn apply_demo_local_port_override(
+    snapshot: RunRecoverySnapshotResult,
+    rule_id: &str,
+    local_port: u16,
+) -> RunRecoverySnapshotResult {
+    let mut next_snapshot = snapshot;
+
+    if local_port == 0 {
+        let error = BridgeError::invalid_demo_action(
+            "Local port override is invalid",
+            Some("local_port must be between 1 and 65535.".to_string()),
+            Some(rule_id.to_string()),
+            None,
+            None,
+        );
+        return next_snapshot.recomputed(Some(RunRecoveryActionStatus {
+            ok: false,
+            message: error.summary.clone(),
+            affected_rule_id: Some(rule_id.to_string()),
+            affected_runtime_id: None,
+            affected_recovery_id: None,
+            error: Some(error),
+        }));
+    }
+
+    let mut recovered_row = None;
+
+    for host in &mut next_snapshot.hosts {
+        if let Some(index) = host
+            .rows
+            .iter()
+            .position(|row| row.rule_id == rule_id && row.state == RunRecoveryRowState::Recoverable)
+        {
+            let row = host.rows.remove(index);
+            let runtime_id = format!("runtime-{}", row.rule_id);
+            recovered_row = Some(RunRecoveryRow {
+                id: runtime_id.clone(),
+                runtime_id: Some(runtime_id),
+                recovery_id: None,
+                state: RunRecoveryRowState::Connected,
+                status_text: "运行中".to_string(),
+                telemetry: Some(format!("临时端口 {local_port} · 5ms · 0次")),
+                port_summary: format!("{local_port} -> {}", row.port_summary),
+                error: None,
+                actions: stop_actions(),
+                ..row
+            });
+            break;
+        }
+    }
+
+    match recovered_row {
+        Some(row) => {
+            insert_row(&mut next_snapshot.hosts, row);
+            next_snapshot.recomputed(Some(RunRecoveryActionStatus {
+                ok: true,
+                message: "已用临时本地端口恢复 demo 转发".to_string(),
+                affected_rule_id: Some(rule_id.to_string()),
+                affected_runtime_id: Some(format!("runtime-{rule_id}")),
+                affected_recovery_id: Some(format!("recovery-{rule_id}")),
+                error: None,
+            }))
+        }
+        None => {
+            let error = BridgeError::invalid_demo_action(
+                "Recoverable demo rule was not found",
+                Some(format!(
+                    "No recoverable row for rule_id `{rule_id}` exists in the submitted snapshot."
+                )),
+                Some(rule_id.to_string()),
+                None,
+                None,
+            );
+            next_snapshot.recomputed(Some(RunRecoveryActionStatus {
+                ok: false,
+                message: error.summary.clone(),
+                affected_rule_id: Some(rule_id.to_string()),
+                affected_runtime_id: None,
                 affected_recovery_id: None,
                 error: Some(error),
             }))
@@ -789,10 +951,7 @@ fn connected_demo_row_for_host(
         status_text: "运行中".to_string(),
         telemetry: Some(telemetry.to_string()),
         error: None,
-        actions: vec![RunRecoveryAction {
-            action: RunRecoveryActionKind::Stop,
-            label: "停止".to_string(),
-        }],
+        actions: stop_actions(),
     }
 }
 
@@ -847,10 +1006,16 @@ fn reconnecting_demo_row_for_host(spec: DemoRowSpec<'_>) -> RunRecoveryRow {
             summary: spec.error_summary.unwrap_or("正在重连").to_string(),
             detail: Some("deterministic demo reconnecting runtime".to_string()),
         }),
-        actions: vec![RunRecoveryAction {
-            action: RunRecoveryActionKind::Stop,
-            label: "停止".to_string(),
-        }],
+        actions: vec![
+            RunRecoveryAction {
+                action: RunRecoveryActionKind::Retry,
+                label: "重试".to_string(),
+            },
+            RunRecoveryAction {
+                action: RunRecoveryActionKind::Stop,
+                label: "停止".to_string(),
+            },
+        ],
     }
 }
 
@@ -881,10 +1046,16 @@ fn error_demo_row(
             summary: error_summary.to_string(),
             detail: Some("deterministic demo error runtime".to_string()),
         }),
-        actions: vec![RunRecoveryAction {
-            action: RunRecoveryActionKind::Stop,
-            label: "停止".to_string(),
-        }],
+        actions: vec![
+            RunRecoveryAction {
+                action: RunRecoveryActionKind::Retry,
+                label: "重试".to_string(),
+            },
+            RunRecoveryAction {
+                action: RunRecoveryActionKind::Stop,
+                label: "停止".to_string(),
+            },
+        ],
     }
 }
 
@@ -933,6 +1104,13 @@ fn recoverable_actions() -> Vec<RunRecoveryAction> {
             label: "清除".to_string(),
         },
     ]
+}
+
+fn stop_actions() -> Vec<RunRecoveryAction> {
+    vec![RunRecoveryAction {
+        action: RunRecoveryActionKind::Stop,
+        label: "停止".to_string(),
+    }]
 }
 
 fn demo_registry_snapshot() -> RegistrySnapshotResult {
@@ -1341,6 +1519,49 @@ mod tests {
             .rows
             .iter()
             .any(|row| row.rule_id == "rule-postgres-main"));
+    }
+
+    #[test]
+    fn retry_demo_runtime_turns_error_row_connected() {
+        let retried = retry_demo_runtime(load_run_recovery_snapshot(), "runtime-rule-rabbitmq");
+
+        assert!(retried.last_action.as_ref().is_some_and(|status| status.ok));
+        assert!(retried.hosts[0].rows.iter().any(|row| {
+            row.rule_id == "rule-rabbitmq"
+                && row.state == RunRecoveryRowState::Connected
+                && row
+                    .actions
+                    .iter()
+                    .any(|action| action.action == RunRecoveryActionKind::Stop)
+        }));
+        assert_eq!(retried.summary.issue_count, 0);
+    }
+
+    #[test]
+    fn local_port_override_recovers_rule_without_mutating_registry_config() {
+        let recovered = apply_demo_local_port_override(
+            load_run_recovery_snapshot(),
+            "rule-postgres-main",
+            15432,
+        );
+
+        assert!(recovered
+            .last_action
+            .as_ref()
+            .is_some_and(|status| status.ok));
+        assert!(recovered.hosts[0].rows.iter().any(|row| {
+            row.rule_id == "rule-postgres-main"
+                && row.state == RunRecoveryRowState::Connected
+                && row.port_summary == "15432 -> 5432"
+        }));
+        assert_eq!(
+            load_registry_snapshot().hosts[0]
+                .rules
+                .iter()
+                .find(|rule| rule.id == "rule-postgres-main")
+                .map(|rule| rule.port_summary.as_str()),
+            Some("5432")
+        );
     }
 
     #[test]

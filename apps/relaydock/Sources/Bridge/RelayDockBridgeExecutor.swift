@@ -87,10 +87,30 @@ final class RelayDockBridgeExecutor {
         return try unwrapRunRecoverySnapshot(result, actionDescription: "start demo rule")
     }
 
+    func retryDemoRuntime(runtimeId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
+        let command = DemoRuntimeActionCommand(runtimeId: runtimeId, snapshot: snapshot)
+        let result = try execute(.retryDemoRuntime(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "retry demo runtime")
+    }
+
     func stopDemoRuntime(runtimeId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
         let command = DemoRuntimeActionCommand(runtimeId: runtimeId, snapshot: snapshot)
         let result = try execute(.stopDemoRuntime(command))
         return try unwrapRunRecoverySnapshot(result, actionDescription: "stop demo runtime")
+    }
+
+    func applyDemoLocalPortOverride(
+        ruleId: String,
+        localPort: UInt16,
+        snapshot: RunRecoverySnapshotResult
+    ) throws -> RunRecoverySnapshotResult {
+        let command = DemoLocalPortOverrideCommand(
+            ruleId: ruleId,
+            localPort: localPort,
+            snapshot: snapshot
+        )
+        let result = try execute(.applyDemoLocalPortOverride(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "apply demo local port override")
     }
 
     func clearDemoRecoveryItem(

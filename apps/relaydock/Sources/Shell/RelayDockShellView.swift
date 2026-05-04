@@ -24,6 +24,14 @@ struct RelayDockShellView: View {
             viewModel.loadRunRecoverySnapshot()
             viewModel.loadRegistrySnapshot()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .relayDockToolbarAction)) { notification in
+            guard let rawValue = notification.object as? String,
+                  let action = RelayDockToolbarAction(rawValue: rawValue) else {
+                return
+            }
+
+            handleToolbarAction(action)
+        }
     }
 
     @ViewBuilder
@@ -34,8 +42,12 @@ struct RelayDockShellView: View {
                 snapshot: viewModel.runRecoverySnapshot,
                 isLoading: viewModel.isLoadingRunRecovery,
                 bridgeError: viewModel.runRecoveryError,
+                collapseCommand: viewModel.runRecoveryCollapseCommand,
                 onRecover: { ruleId in
                     viewModel.recoverDemoRule(ruleId: ruleId)
+                },
+                onRetry: { runtimeId in
+                    viewModel.retryDemoRuntime(runtimeId: runtimeId)
                 },
                 onStop: { runtimeId in
                     viewModel.stopDemoRuntime(runtimeId: runtimeId)
@@ -43,8 +55,8 @@ struct RelayDockShellView: View {
                 onClear: { recoveryId in
                     viewModel.clearDemoRecoveryItem(recoveryId: recoveryId)
                 },
-                onChangeLocalPort: { ruleId in
-                    viewModel.changeLocalPortForDemoRule(ruleId: ruleId)
+                onChangeLocalPort: { ruleId, localPort in
+                    viewModel.applyDemoLocalPortOverride(ruleId: ruleId, localPort: localPort)
                 },
                 onReload: {
                     viewModel.loadRunRecoverySnapshot()
@@ -55,6 +67,18 @@ struct RelayDockShellView: View {
                 snapshot: viewModel.registrySnapshot,
                 selectedHostId: $viewModel.selectedRegistryHostId,
                 bridgeError: viewModel.registryError,
+                onRecoverRule: { ruleId in
+                    viewModel.recoverDemoRule(ruleId: ruleId)
+                    viewModel.selection = .runAndRecovery
+                },
+                onRetryRule: { ruleId in
+                    viewModel.retryRuntimeForRule(ruleId)
+                    viewModel.selection = .runAndRecovery
+                },
+                onStopRule: { ruleId in
+                    viewModel.stopRuntimeForRule(ruleId)
+                    viewModel.selection = .runAndRecovery
+                },
                 onReload: {
                     viewModel.loadRegistrySnapshot()
                 }
@@ -63,6 +87,21 @@ struct RelayDockShellView: View {
             LogsAndDiagnosticsView()
         case .preferences:
             PreferencesView()
+        }
+    }
+}
+
+private extension RelayDockShellView {
+    func handleToolbarAction(_ action: RelayDockToolbarAction) {
+        switch action {
+        case .recheck:
+            viewModel.reloadCurrentSection()
+        case .collapseAll:
+            viewModel.collapseAllRunRecoveryHosts()
+        case .stopAll:
+            viewModel.stopAllRunningDemoRuntimes()
+        case .clearRecovery:
+            viewModel.clearAllDemoRecoveryItems()
         }
     }
 }
