@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Review project constraints and naming"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Review Swift shell ownership"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Review visual QA requirement"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Verify native shell structure"}
+{"file": "documents/11-localport-prototype-reference.md", "reason": "Verify LocalPort was not copied as implementation"}
