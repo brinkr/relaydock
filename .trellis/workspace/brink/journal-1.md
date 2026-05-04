@@ -139,3 +139,36 @@ Implemented the Rust core OpenSSH provider foundation: structured SSH command la
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Runnable Run Recovery Flow
+
+**Date**: 2026-05-05
+**Task**: Runnable Run Recovery Flow
+**Branch**: `main`
+
+### Summary
+
+Implemented the first bridge-backed Run/Recovery vertical slice. Rust now exposes deterministic load/start/stop/clear snapshot commands, Swift renders and actions those snapshots through the shell ViewModel, visual QA bundles the bridge sidecar for native-window inspection, and the flow was verified through build/test/clippy/sidecar smoke/screenshot/Computer Use interaction.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3bb778f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
