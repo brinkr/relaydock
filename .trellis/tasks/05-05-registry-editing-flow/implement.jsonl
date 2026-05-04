@@ -1,0 +1,13 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints keep registry work inside SwiftUI AppKit Rust boundaries"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Registry editing flow must stay native and sheet driven"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Registry page layout and editing affordance rules"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge remains coarse grained for config editing"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Command contracts and error mapping across Swift and Rust"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust owns configuration validation and persistence"}
+{"file": "documents/01-product-baseline.md", "reason": "Registry is the configuration center in the product baseline"}
+{"file": "documents/03-domain-model.md", "reason": "Host Rule Preset ProviderTarget structures and boundaries"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Registry host list and detail pane information architecture"}
+{"file": "documents/06-provider-and-network-scenarios.md", "reason": "Provider target labeling and host default semantics"}
+{"file": "documents/08-import-export-and-ai.md", "reason": "Import remains out of scope but shapes config model constraints"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Confirmed engineering order and architecture"}

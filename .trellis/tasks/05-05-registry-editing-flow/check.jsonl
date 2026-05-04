@@ -1,0 +1,10 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/project/index.md", "reason": "Check architecture drift and task hygiene"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Check native registry editing behavior"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Check registry layout and sheet semantics"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Check bridge stays coarse grained"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Check config command contracts and validation behavior"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Check persistence and validation remain in Rust"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Check registry behavior against target structure"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Check no architecture drift while adding CRUD"}
+{"file": "documents/08-import-export-and-ai.md", "reason": "Check import remains explicitly out of scope in this slice"}
