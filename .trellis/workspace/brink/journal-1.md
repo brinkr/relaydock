@@ -271,3 +271,45 @@ Converted RelayDock's Logs & Diagnostics and Preferences sections from placehold
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Close LocalPort-aligned native UI task
+
+**Date**: 2026-05-05
+**Task**: Close LocalPort-aligned native UI task
+**Branch**: `main`
+
+### Summary
+
+Ran a final acceptance pass for the LocalPort-aligned native RelayDock UI, verified Swift and Rust checks, confirmed fresh run/recovery and registry screenshots, and closed the task without further code changes.
+
+### Main Changes
+
+- Acceptance evidence refreshed in one verification round:
+  - `/Users/workspace/relaydock/artifacts/visual-qa/relaydock-window-20260505-054940.png`
+  - `/Users/workspace/relaydock/artifacts/visual-qa/relaydock-registry-20260505-055053.png`
+- Verified `运行与恢复` shows multiple hosts, 7+ visible service rows, explicit `停止` / `重试` / `恢复` / `改本地端口` / `清除` actions, and a native titlebar toolbar with no oversized blank strip.
+- Verified `资源登记` shows a dense left host list, selected-host detail context, presets, rule filtering, and rule actions aligned with the LocalPort reference boundary.
+- Re-ran project checks: `swift build`, `cargo fmt --check`, `cargo test -p relaydock-core`, `cargo clippy --all-targets -- -D warnings`, and `git diff --check`.
+- No new spec delta surfaced during close-out; the task's earlier commits already captured the bridge and Swift shell rules needed for future sessions.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e0cef7` | (see git log) |
+| `0eeb041` | (see git log) |
+| `8ea9039` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
