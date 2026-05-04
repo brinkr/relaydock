@@ -73,3 +73,36 @@ Restored RelayDock to a real AppKit titlebar toolbar after visual inspection sho
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Add storage and recovery foundation
+
+**Date**: 2026-05-05
+**Task**: Add storage and recovery foundation
+**Branch**: `main`
+
+### Summary
+
+Implemented the first SQLite-backed Rust core storage foundation for configuration snapshots, runtime snapshots, and recovery collections. Added validation so credentials stay out of ordinary SQLite and session-scoped local port overrides do not mutate saved rule configuration.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ce268f3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
