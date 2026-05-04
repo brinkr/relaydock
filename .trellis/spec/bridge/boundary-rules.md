@@ -59,6 +59,11 @@ RelayDockBridgeExecutor(executableURL: bridgeURL)
 - Responses must use one envelope shape:
   - success: `ok: true`, `result: <typed result>`
   - failure: `ok: false`, `error: <typed bridge error>`
+- The current JSON sidecar is one command per process and does not hold runtime
+  memory between invocations. Demo runtime action commands may submit the last
+  Rust-produced snapshot as command input and must return a full next snapshot;
+  Swift may store and re-submit that snapshot, but must not invent the runtime
+  transition itself.
 - `suggested_port` is present only when the requested port conflicts and Rust can suggest another port.
 - Rust core must not import Swift, SwiftUI, or AppKit.
 - Swift bridge models must stay outside SwiftUI views.

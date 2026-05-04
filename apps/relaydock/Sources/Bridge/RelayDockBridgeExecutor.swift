@@ -31,6 +31,9 @@ final class RelayDockBridgeExecutor {
             summary: "Bridge response did not include a result or error",
             detail: String(data: responseData, encoding: .utf8),
             affectedPort: nil,
+            affectedRuleId: nil,
+            affectedRuntimeId: nil,
+            affectedRecoveryId: nil,
             suggestedRecovery: nil
         )
     }
@@ -44,11 +47,40 @@ final class RelayDockBridgeExecutor {
                 summary: "Bridge returned an unexpected result type",
                 detail: nil,
                 affectedPort: command.claim.port,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
                 suggestedRecovery: nil
             )
         }
 
         return portClaimResult
+    }
+
+    func loadRunRecoverySnapshot() throws -> RunRecoverySnapshotResult {
+        let result = try execute(.loadRunRecoverySnapshot)
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "load run/recovery snapshot")
+    }
+
+    func startDemoRule(ruleId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
+        let command = DemoRuleActionCommand(ruleId: ruleId, snapshot: snapshot)
+        let result = try execute(.startDemoRule(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "start demo rule")
+    }
+
+    func stopDemoRuntime(runtimeId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
+        let command = DemoRuntimeActionCommand(runtimeId: runtimeId, snapshot: snapshot)
+        let result = try execute(.stopDemoRuntime(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "stop demo runtime")
+    }
+
+    func clearDemoRecoveryItem(
+        recoveryId: String,
+        snapshot: RunRecoverySnapshotResult
+    ) throws -> RunRecoverySnapshotResult {
+        let command = DemoRecoveryActionCommand(recoveryId: recoveryId, snapshot: snapshot)
+        let result = try execute(.clearDemoRecoveryItem(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "clear demo recovery item")
     }
 
     private func runBridgeProcess(commandData: Data) throws -> Data {
@@ -71,6 +103,9 @@ final class RelayDockBridgeExecutor {
                 summary: "Bridge process could not be started",
                 detail: error.localizedDescription,
                 affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
                 suggestedRecovery: "Check the configured RelayDock bridge executable path."
             )
         }
@@ -94,6 +129,9 @@ final class RelayDockBridgeExecutor {
             summary: "Bridge process failed",
             detail: String(data: stderr, encoding: .utf8),
             affectedPort: nil,
+            affectedRuleId: nil,
+            affectedRuntimeId: nil,
+            affectedRecoveryId: nil,
             suggestedRecovery: "Check the configured RelayDock bridge executable path."
         )
     }
@@ -107,8 +145,31 @@ final class RelayDockBridgeExecutor {
                 summary: "Bridge response JSON could not be decoded",
                 detail: error.localizedDescription,
                 affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
                 suggestedRecovery: nil
             )
         }
+    }
+
+    private func unwrapRunRecoverySnapshot(
+        _ result: BridgeCommandResult,
+        actionDescription: String
+    ) throws -> RunRecoverySnapshotResult {
+        guard case let .runRecoverySnapshot(snapshot) = result else {
+            throw BridgeErrorInfo(
+                code: .responseDecodeFailed,
+                summary: "Bridge returned an unexpected result type",
+                detail: "Expected run_recovery_snapshot for \(actionDescription).",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: nil
+            )
+        }
+
+        return snapshot
     }
 }

@@ -26,5 +26,19 @@ enum RelayDockBridgeSmoke {
 
         return try executor.checkPortClaim(command)
     }
-}
 
+    static func runRunRecoveryFlow(executableURL: URL) throws -> RunRecoverySnapshotResult {
+        let executor = RelayDockBridgeExecutor(executableURL: executableURL)
+        let loaded = try executor.loadRunRecoverySnapshot()
+        let started = try executor.startDemoRule(ruleId: "rule-postgres-main", snapshot: loaded)
+        let stopped = try executor.stopDemoRuntime(
+            runtimeId: "runtime-rule-postgres-main",
+            snapshot: started
+        )
+
+        return try executor.clearDemoRecoveryItem(
+            recoveryId: "recovery-rule-postgres-main",
+            snapshot: stopped
+        )
+    }
+}

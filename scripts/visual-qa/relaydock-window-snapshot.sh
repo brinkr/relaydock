@@ -6,13 +6,16 @@ OUTPUT_DIR="${ROOT_DIR}/artifacts/visual-qa"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 OUTPUT_PATH="${OUTPUT_DIR}/relaydock-window-${TIMESTAMP}.png"
 BUILD_BINARY="${ROOT_DIR}/.build/debug/relaydock"
+BRIDGE_BINARY="${ROOT_DIR}/target/debug/relaydock-bridge"
 APP_BUNDLE_ID="dev.relaydock.visualqa"
 APP_BUNDLE_DIR="${OUTPUT_DIR}/RelayDock-${TIMESTAMP}.app"
 APP_EXECUTABLE="${APP_BUNDLE_DIR}/Contents/MacOS/relaydock"
+APP_RESOURCES_DIR="${APP_BUNDLE_DIR}/Contents/Resources"
 INFO_PLIST="${APP_BUNDLE_DIR}/Contents/Info.plist"
 APP_LAUNCH_TIMEOUT_SECONDS="10"
 WINDOW_LOOKUP_TIMEOUT_SECONDS="5"
 WINDOW_LOOKUP_DELAY_SECONDS="0.25"
+KEEP_OPEN="${RELAYDOCK_VISUAL_QA_KEEP_OPEN:-0}"
 APP_PID=""
 
 mkdir -p "${OUTPUT_DIR}"
@@ -95,8 +98,11 @@ cleanup_stale_processes() {
 
 prepare_app_bundle() {
   mkdir -p "${APP_BUNDLE_DIR}/Contents/MacOS"
+  mkdir -p "${APP_RESOURCES_DIR}"
   cp "${BUILD_BINARY}" "${APP_EXECUTABLE}"
+  cp "${BRIDGE_BINARY}" "${APP_RESOURCES_DIR}/relaydock-bridge"
   chmod +x "${APP_EXECUTABLE}"
+  chmod +x "${APP_RESOURCES_DIR}/relaydock-bridge"
 
   cat >"${INFO_PLIST}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -294,6 +300,11 @@ capture_fullscreen_screenshot() {
 }
 
 cleanup() {
+  if [[ "${KEEP_OPEN}" == "1" ]]; then
+    echo "Keeping RelayDock visual QA app open at ${APP_BUNDLE_DIR} with pid ${APP_PID}." >&2
+    return 0
+  fi
+
   osascript -e "tell application id \"${APP_BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   terminate_pid_if_matches "${APP_PID}"
   cleanup_stale_processes
@@ -303,8 +314,10 @@ trap cleanup EXIT
 
 cd "${ROOT_DIR}"
 swift build >/dev/null
+cargo build -p relaydock-core --bin relaydock-bridge >/dev/null
 
 [[ -x "${BUILD_BINARY}" ]] || fail "Expected built binary at ${BUILD_BINARY}."
+[[ -x "${BRIDGE_BINARY}" ]] || fail "Expected built bridge sidecar at ${BRIDGE_BINARY}."
 
 cleanup_stale_processes
 prepare_app_bundle

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project quality and commit rules"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell quality checks and visual QA"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge contract checks"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust core quality checks"}

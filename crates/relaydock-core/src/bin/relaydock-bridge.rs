@@ -7,7 +7,7 @@ fn main() {
         .and_then(execute_bridge_command)
     {
         Ok(result) => (BridgeResponse::success(result), 0),
-        Err(error) => (BridgeResponse::failure(error), 1),
+        Err(error) => (BridgeResponse::failure(*error), 1),
     };
 
     if let Err(error) = write_response(&response) {
@@ -18,7 +18,7 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn read_command_json() -> Result<String, BridgeError> {
+fn read_command_json() -> Result<String, Box<BridgeError>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if !args.is_empty() {
         return Ok(args.join(" "));
@@ -26,22 +26,28 @@ fn read_command_json() -> Result<String, BridgeError> {
 
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).map_err(|error| {
-        BridgeError::internal("Could not read bridge command", Some(error.to_string()))
+        Box::new(BridgeError::internal(
+            "Could not read bridge command",
+            Some(error.to_string()),
+        ))
     })?;
 
     if input.trim().is_empty() {
-        return Err(BridgeError::invalid_command(
+        return Err(Box::new(BridgeError::invalid_command(
             "Bridge command input is empty",
             Some("Expected one JSON command on stdin or as a process argument.".to_string()),
-        ));
+        )));
     }
 
     Ok(input)
 }
 
-fn parse_command(input: String) -> Result<BridgeCommand, BridgeError> {
+fn parse_command(input: String) -> Result<BridgeCommand, Box<BridgeError>> {
     serde_json::from_str(&input).map_err(|error| {
-        BridgeError::invalid_command("Command JSON could not be parsed", Some(error.to_string()))
+        Box::new(BridgeError::invalid_command(
+            "Command JSON could not be parsed",
+            Some(error.to_string()),
+        ))
     })
 }
 

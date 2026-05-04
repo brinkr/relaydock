@@ -20,13 +20,35 @@ struct RelayDockShellView: View {
         }
         .frame(minWidth: 920, minHeight: 620)
         .background(RelayDockColor.windowBackground)
+        .task {
+            viewModel.loadRunRecoverySnapshot()
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         switch viewModel.selection {
         case .runAndRecovery:
-            RunAndRecoveryView()
+            RunAndRecoveryView(
+                snapshot: viewModel.runRecoverySnapshot,
+                isLoading: viewModel.isLoadingRunRecovery,
+                bridgeError: viewModel.runRecoveryError,
+                onRecover: { ruleId in
+                    viewModel.recoverDemoRule(ruleId: ruleId)
+                },
+                onStop: { runtimeId in
+                    viewModel.stopDemoRuntime(runtimeId: runtimeId)
+                },
+                onClear: { recoveryId in
+                    viewModel.clearDemoRecoveryItem(recoveryId: recoveryId)
+                },
+                onChangeLocalPort: { ruleId in
+                    viewModel.changeLocalPortForDemoRule(ruleId: ruleId)
+                },
+                onReload: {
+                    viewModel.loadRunRecoverySnapshot()
+                }
+            )
         case .registry:
             RegistryView()
         case .logsAndDiagnostics:

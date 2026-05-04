@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints and SwiftUI + AppKit shell + Rust core guardrails"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell UI and ViewModel boundaries for Run/Recovery wiring"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge command/result/error contracts"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust core command, provider, storage, and runtime ownership"}
+{"file": "documents/04-runtime-state-machine.md", "reason": "Run/recovery state transitions"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Run/Recovery UI structure"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Technology stack and bridge ownership"}

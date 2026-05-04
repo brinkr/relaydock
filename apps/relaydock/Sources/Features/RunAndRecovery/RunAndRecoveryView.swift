@@ -1,43 +1,118 @@
 import SwiftUI
 
 struct RunAndRecoveryView: View {
+    let snapshot: RunRecoverySnapshotResult?
+    let isLoading: Bool
+    let bridgeError: BridgeErrorInfo?
+    let onRecover: (String) -> Void
+    let onStop: (String) -> Void
+    let onClear: (String) -> Void
+    let onChangeLocalPort: (String) -> Void
+    let onReload: () -> Void
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                HostRuntimeGroup(
-                    hostName: "Mac mini · 家",
-                    endpoint: "admin@192.168.1.5",
-                    providerSummary: "SSH · 家庭宽带",
-                    rows: [
-                        RuntimeRow(
-                            serviceName: "React 前端",
-                            alias: "react.home.localhost",
-                            portSummary: "3000",
-                            status: "运行中",
-                            telemetry: "6h 12m · 2ms · 0次",
-                            actions: ["停止"]
-                        ),
-                        RuntimeRow(
-                            serviceName: "PostgreSQL Main",
-                            alias: "pg.home.localhost",
-                            portSummary: "5432",
-                            status: "待恢复",
-                            telemetry: "",
-                            actions: ["恢复", "改本地端口", "清除"]
+                if let bridgeError {
+                    BridgeErrorBanner(error: bridgeError, onReload: onReload)
+                }
+
+                if isLoading && snapshot == nil {
+                    LoadingRunRecoveryState()
+                } else if let snapshot, !snapshot.hosts.isEmpty {
+                    ForEach(snapshot.hosts) { host in
+                        HostRuntimeGroup(
+                            host: host,
+                            onRecover: onRecover,
+                            onStop: onStop,
+                            onClear: onClear,
+                            onChangeLocalPort: onChangeLocalPort
                         )
-                    ]
-                )
+                    }
+                } else {
+                    EmptyRunRecoveryState(onReload: onReload)
+                }
             }
         }
         .background(RelayDockColor.contentBackground)
     }
 }
 
+private struct BridgeErrorBanner: View {
+    let error: BridgeErrorInfo
+    let onReload: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(error.summary)
+                    .font(.system(size: 12, weight: .semibold))
+                if let detail = error.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            Button("重新读取", action: onReload)
+                .font(.system(size: 11, weight: .medium))
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.08))
+    }
+}
+
+private struct LoadingRunRecoveryState: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("正在通过 bridge 读取运行与恢复状态")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(18)
+    }
+}
+
+private struct EmptyRunRecoveryState: View {
+    let onReload: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "tray")
+                .font(.system(size: 24))
+                .foregroundStyle(.secondary)
+            Text("没有运行或待恢复项目")
+                .font(.system(size: 13, weight: .semibold))
+            Button("重新读取", action: onReload)
+                .font(.system(size: 12, weight: .medium))
+        }
+        .buttonStyle(.borderless)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 60)
+    }
+}
+
 private struct HostRuntimeGroup: View {
-    let hostName: String
-    let endpoint: String
-    let providerSummary: String
-    let rows: [RuntimeRow]
+    let host: RunRecoveryHost
+    let onRecover: (String) -> Void
+    let onStop: (String) -> Void
+    let onClear: (String) -> Void
+    let onChangeLocalPort: (String) -> Void
+
+    private var runningCount: Int {
+        host.rows.filter { $0.state != .recoverable }.count
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,25 +122,38 @@ private struct HostRuntimeGroup: View {
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(hostName)
+                    Text(host.name)
                         .font(.system(size: 13, weight: .semibold))
-                    Text("\(endpoint) · 运行集包含 \(rows.count) 个转发")
+                    Text("\(host.endpoint) · 运行中 \(runningCount) 个 / 待恢复 \(host.rows.count - runningCount) 个")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                Text(providerSummary)
+                Text(host.providerSummary)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
 
-                Button("恢复全部") {}
-                    .font(.system(size: 11, weight: .medium))
-                Button("停止运行中", role: .destructive) {}
-                    .font(.system(size: 11, weight: .medium))
-                Button("清空待恢复", role: .destructive) {}
-                    .font(.system(size: 11, weight: .medium))
+                Button("恢复全部") {
+                    host.rows
+                        .filter { $0.state == .recoverable }
+                        .forEach { onRecover($0.ruleId) }
+                }
+                .disabled(!host.rows.contains { $0.state == .recoverable })
+                .font(.system(size: 11, weight: .medium))
+
+                Button("停止运行中", role: .destructive) {
+                    host.rows.compactMap(\.runtimeId).forEach(onStop)
+                }
+                .disabled(!host.rows.contains { $0.runtimeId != nil })
+                .font(.system(size: 11, weight: .medium))
+
+                Button("清空待恢复", role: .destructive) {
+                    host.rows.compactMap(\.recoveryId).forEach(onClear)
+                }
+                .disabled(!host.rows.contains { $0.recoveryId != nil })
+                .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 18)
@@ -74,26 +162,26 @@ private struct HostRuntimeGroup: View {
 
             Divider()
 
-            ForEach(rows) { row in
-                RuntimeServiceRow(row: row)
+            ForEach(host.rows) { row in
+                RuntimeServiceRow(
+                    row: row,
+                    onRecover: onRecover,
+                    onStop: onStop,
+                    onClear: onClear,
+                    onChangeLocalPort: onChangeLocalPort
+                )
                 Divider()
             }
         }
     }
 }
 
-private struct RuntimeRow: Identifiable {
-    let id = UUID()
-    let serviceName: String
-    let alias: String
-    let portSummary: String
-    let status: String
-    let telemetry: String
-    let actions: [String]
-}
-
 private struct RuntimeServiceRow: View {
-    let row: RuntimeRow
+    let row: RunRecoveryRow
+    let onRecover: (String) -> Void
+    let onStop: (String) -> Void
+    let onClear: (String) -> Void
+    let onChangeLocalPort: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -109,7 +197,7 @@ private struct RuntimeServiceRow: View {
 
                 Spacer()
 
-                Text("SSH · 家庭宽带")
+                Text(row.providerLabel)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -120,21 +208,30 @@ private struct RuntimeServiceRow: View {
                     .foregroundStyle(.secondary)
                     .padding(.leading, 30)
 
-                Text(row.status)
+                Text(row.statusText)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(row.status == "运行中" ? .green : .secondary)
+                    .foregroundStyle(statusColor)
 
-                if !row.telemetry.isEmpty {
-                    Text(row.telemetry)
+                if let telemetry = row.telemetry, !telemetry.isEmpty {
+                    Text(telemetry)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
 
+                if let error = row.error {
+                    Text(error.summary)
+                        .font(.system(size: 11))
+                        .foregroundStyle(errorColor)
+                        .lineLimit(1)
+                }
+
                 Spacer()
 
-                ForEach(row.actions, id: \.self) { action in
-                    Button(action, role: action == "停止" || action == "清除" ? .destructive : nil) {}
-                        .font(.system(size: 11, weight: .medium))
+                ForEach(row.actions, id: \.action) { action in
+                    Button(action.label, role: buttonRole(for: action.action)) {
+                        perform(action.action)
+                    }
+                    .font(.system(size: 11, weight: .medium))
                 }
             }
             .buttonStyle(.borderless)
@@ -142,6 +239,49 @@ private struct RuntimeServiceRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
         .background(RelayDockColor.contentBackground)
+    }
+
+    private var statusColor: Color {
+        switch row.state {
+        case .connected:
+            return .green
+        case .reconnecting:
+            return .orange
+        case .error:
+            return .red
+        case .recoverable:
+            return .secondary
+        }
+    }
+
+    private var errorColor: Color {
+        row.state == .recoverable ? .secondary : .red
+    }
+
+    private func buttonRole(for action: RunRecoveryActionKind) -> ButtonRole? {
+        switch action {
+        case .stop, .clear:
+            return .destructive
+        case .recover, .changeLocalPort:
+            return nil
+        }
+    }
+
+    private func perform(_ action: RunRecoveryActionKind) {
+        switch action {
+        case .recover:
+            onRecover(row.ruleId)
+        case .changeLocalPort:
+            onChangeLocalPort(row.ruleId)
+        case .stop:
+            if let runtimeId = row.runtimeId {
+                onStop(runtimeId)
+            }
+        case .clear:
+            if let recoveryId = row.recoveryId {
+                onClear(recoveryId)
+            }
+        }
     }
 }
 
