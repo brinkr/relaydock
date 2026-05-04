@@ -24,9 +24,25 @@ final class RelayDockWindowController: NSWindowController {
         window.isMovableByWindowBackground = true
         window.toolbarStyle = .unifiedCompact
         window.toolbar = RelayDockToolbarController.makeToolbar()
+        RelayDockWindowController.centerWindowOnPrimaryScreen(window)
 
         self.init(window: window)
         shouldCascadeWindows = true
+    }
+
+    private static func centerWindowOnPrimaryScreen(_ window: NSWindow) {
+        let screen = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
+        guard let visibleFrame = screen?.visibleFrame else {
+            window.center()
+            return
+        }
+
+        let frame = window.frame
+        let origin = NSPoint(
+            x: visibleFrame.midX - frame.width / 2,
+            y: visibleFrame.midY - frame.height / 2
+        )
+        window.setFrameOrigin(origin)
     }
 }
 

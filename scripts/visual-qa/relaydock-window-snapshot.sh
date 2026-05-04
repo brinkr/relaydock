@@ -245,6 +245,65 @@ PYTHON
   printf '%s\n' "${query_output}"
 }
 
+read_window_rect_with_coregraphics() {
+  swift - "${APP_PID}" <<'SWIFT'
+import CoreGraphics
+import Foundation
+
+guard CommandLine.arguments.count == 2,
+      let appPid = Int(CommandLine.arguments[1]) else {
+    exit(1)
+}
+
+let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+
+for window in windows {
+    guard window[kCGWindowOwnerPID as String] as? Int == appPid else {
+        continue
+    }
+
+    guard (window[kCGWindowLayer as String] as? Int ?? 0) == 0 else {
+        continue
+    }
+
+    guard let bounds = window[kCGWindowBounds as String] as? [String: Any],
+          let width = bounds["Width"] as? Int,
+          let height = bounds["Height"] as? Int,
+          width > 0,
+          height > 0 else {
+        continue
+    }
+
+    let xPosition = bounds["X"] as? Int ?? 0
+    let yPosition = bounds["Y"] as? Int ?? 0
+    print("\(xPosition),\(yPosition),\(width),\(height)")
+    exit(0)
+}
+
+exit(1)
+SWIFT
+}
+
+is_black_screenshot() {
+  python3 - "${OUTPUT_PATH}" <<'PYTHON'
+import sys
+from pathlib import Path
+from PIL import Image, ImageStat
+
+image_path = Path(sys.argv[1])
+if not image_path.exists() or image_path.stat().st_size == 0:
+    sys.exit(0)
+
+image = Image.open(image_path).convert("RGB")
+stat = ImageStat.Stat(image)
+if max(stat.extrema[0][1], stat.extrema[1][1], stat.extrema[2][1]) < 3:
+    sys.exit(0)
+
+sys.exit(1)
+PYTHON
+}
+
 capture_window_lookup_fallback() {
   local reason="$1"
   local detail="$2"
@@ -282,6 +341,10 @@ capture_window_screenshot() {
     fail "Failed command: ${capture_command}
 Command output: ${capture_output}"
   fi
+
+  if is_black_screenshot; then
+    fail "Captured screenshot is all black; visual QA cannot verify the RelayDock window. Check Screen Recording permission and display/window placement."
+  fi
 }
 
 capture_fullscreen_screenshot() {
@@ -296,6 +359,10 @@ capture_fullscreen_screenshot() {
 
   if [[ "${capture_status}" != "0" ]]; then
     fail_screen_recording "${capture_command}" "${capture_output}"
+  fi
+
+  if is_black_screenshot; then
+    fail "Captured fallback screenshot is all black; visual QA cannot verify the RelayDock window. Check Screen Recording permission and display/window placement."
   fi
 }
 
@@ -353,11 +420,18 @@ done
 
 if [[ -n "${ACCESSIBILITY_DENIED_DETAIL}" ]]; then
   warn_accessibility_fallback "${ACCESSIBILITY_DENIED_DETAIL}"
-  capture_window_lookup_fallback "Accessibility permission blocked the RelayDock window rectangle query." "${ACCESSIBILITY_DENIED_DETAIL}"
+  WINDOW_RECT="$(read_window_rect_with_coregraphics || true)"
+  if [[ -z "${WINDOW_RECT}" ]]; then
+    capture_window_lookup_fallback "Accessibility permission blocked the RelayDock window rectangle query." "${ACCESSIBILITY_DENIED_DETAIL}"
+  fi
 fi
 
 if [[ -z "${WINDOW_RECT}" ]]; then
-  capture_window_lookup_fallback "Failed to locate a RelayDock window via osascript within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s." ""
+  WINDOW_RECT="$(read_window_rect_with_coregraphics || true)"
+fi
+
+if [[ -z "${WINDOW_RECT}" ]]; then
+  capture_window_lookup_fallback "Failed to locate a RelayDock window via osascript or CoreGraphics within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s." ""
 fi
 
 capture_window_screenshot "${WINDOW_RECT}"

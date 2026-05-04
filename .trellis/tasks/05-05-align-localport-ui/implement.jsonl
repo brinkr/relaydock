@@ -1,0 +1,11 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints keep LocalPort as visual reference and preserve SwiftUI AppKit Rust architecture"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell owns native macOS UI patterns and density"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge snapshots must remain coarse grained and UI independent"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust core owns domain state snapshots used by the UI"}
+{"file": ".trellis/spec/guides/index.md", "reason": "Cross layer and reuse thinking guide for Swift bridge Rust changes"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Target UI information architecture for run recovery and registry"}
+{"file": "documents/11-localport-prototype-reference.md", "reason": "Reference boundary for LocalPort visual density and non copied items"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Confirmed technology stack boundary"}
+{"file": "documents/03-domain-model.md", "reason": "Domain concepts for hosts provider targets rules runtime instances and recovery items"}
+{"file": "documents/04-runtime-state-machine.md", "reason": "Runtime states and action semantics for run and recovery UI"}

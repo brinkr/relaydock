@@ -10,6 +10,8 @@ struct RunAndRecoveryView: View {
     let onChangeLocalPort: (String) -> Void
     let onReload: () -> Void
 
+    @State private var collapsedHostIds = Set<String>()
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -23,6 +25,14 @@ struct RunAndRecoveryView: View {
                     ForEach(snapshot.hosts) { host in
                         HostRuntimeGroup(
                             host: host,
+                            isCollapsed: collapsedHostIds.contains(host.id),
+                            onToggleCollapse: {
+                                if collapsedHostIds.contains(host.id) {
+                                    collapsedHostIds.remove(host.id)
+                                } else {
+                                    collapsedHostIds.insert(host.id)
+                                }
+                            },
                             onRecover: onRecover,
                             onStop: onStop,
                             onClear: onClear,
@@ -38,7 +48,7 @@ struct RunAndRecoveryView: View {
     }
 }
 
-private struct BridgeErrorBanner: View {
+struct BridgeErrorBanner: View {
     let error: BridgeErrorInfo
     let onReload: () -> Void
 
@@ -105,6 +115,8 @@ private struct EmptyRunRecoveryState: View {
 
 private struct HostRuntimeGroup: View {
     let host: RunRecoveryHost
+    let isCollapsed: Bool
+    let onToggleCollapse: () -> Void
     let onRecover: (String) -> Void
     let onStop: (String) -> Void
     let onClear: (String) -> Void
@@ -117,9 +129,17 @@ private struct HostRuntimeGroup: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
+                Button(action: onToggleCollapse) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 16)
+
                 Image(systemName: "desktopcomputer")
                     .foregroundStyle(.secondary)
-                    .frame(width: 24)
+                    .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(host.name)
@@ -157,20 +177,22 @@ private struct HostRuntimeGroup: View {
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 18)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
             .background(RelayDockColor.controlBackground.opacity(0.72))
 
-            Divider()
-
-            ForEach(host.rows) { row in
-                RuntimeServiceRow(
-                    row: row,
-                    onRecover: onRecover,
-                    onStop: onStop,
-                    onClear: onClear,
-                    onChangeLocalPort: onChangeLocalPort
-                )
                 Divider()
+
+            if !isCollapsed {
+                ForEach(host.rows) { row in
+                    RuntimeServiceRow(
+                        row: row,
+                        onRecover: onRecover,
+                        onStop: onStop,
+                        onClear: onClear,
+                        onChangeLocalPort: onChangeLocalPort
+                    )
+                    Divider()
+                }
             }
         }
     }
@@ -200,22 +222,26 @@ private struct RuntimeServiceRow: View {
                 Text(row.providerLabel)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .frame(width: 118, alignment: .trailing)
             }
 
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 Text(row.portSummary)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .frame(width: 92, alignment: .leading)
                     .padding(.leading, 30)
 
                 Text(row.statusText)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(statusColor)
+                    .frame(width: 46, alignment: .leading)
 
                 if let telemetry = row.telemetry, !telemetry.isEmpty {
                     Text(telemetry)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .frame(width: 108, alignment: .leading)
                 }
 
                 if let error = row.error {
@@ -237,7 +263,7 @@ private struct RuntimeServiceRow: View {
             .buttonStyle(.borderless)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 9)
+        .padding(.vertical, 6)
         .background(RelayDockColor.contentBackground)
     }
 
@@ -285,7 +311,7 @@ private struct RuntimeServiceRow: View {
     }
 }
 
-private struct ServiceGlyph: View {
+struct ServiceGlyph: View {
     let name: String
 
     var body: some View {

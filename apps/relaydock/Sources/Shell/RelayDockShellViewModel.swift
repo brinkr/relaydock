@@ -6,6 +6,9 @@ final class RelayDockShellViewModel: ObservableObject {
     @Published private(set) var runRecoverySnapshot: RunRecoverySnapshotResult?
     @Published private(set) var isLoadingRunRecovery = false
     @Published private(set) var runRecoveryError: BridgeErrorInfo?
+    @Published private(set) var registrySnapshot: RegistrySnapshotResult?
+    @Published private(set) var registryError: BridgeErrorInfo?
+    @Published var selectedRegistryHostId: String?
 
     private let bridgeExecutor: RelayDockBridgeExecutor?
 
@@ -102,6 +105,46 @@ final class RelayDockShellViewModel: ObservableObject {
             affectedRecoveryId: nil,
             suggestedRecovery: "当前垂直切片先覆盖恢复、停止和清除。"
         )
+    }
+
+    func loadRegistrySnapshot() {
+        guard let bridgeExecutor else {
+            registryError = BridgeErrorInfo(
+                code: .processFailed,
+                summary: "未找到 RelayDock bridge sidecar",
+                detail: "Expected target/debug/relaydock-bridge in the development workspace.",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: "Run cargo build -p relaydock-core --bin relaydock-bridge."
+            )
+            return
+        }
+
+        do {
+            let snapshot = try bridgeExecutor.loadRegistrySnapshot()
+            registrySnapshot = snapshot
+            registryError = nil
+            if selectedRegistryHostId == nil || !snapshot.hosts.contains(where: { $0.id == selectedRegistryHostId }) {
+                selectedRegistryHostId = snapshot.selectedHostId
+            }
+        } catch {
+            if let bridgeError = error as? BridgeErrorInfo {
+                registryError = bridgeError
+            } else {
+                registryError = BridgeErrorInfo(
+                    code: .internalError,
+                    summary: "资源登记读取失败",
+                    detail: error.localizedDescription,
+                    affectedPort: nil,
+                    affectedRuleId: nil,
+                    affectedRuntimeId: nil,
+                    affectedRecoveryId: nil,
+                    suggestedRecovery: nil
+                )
+            }
+        }
     }
 
     private func performSnapshotAction(

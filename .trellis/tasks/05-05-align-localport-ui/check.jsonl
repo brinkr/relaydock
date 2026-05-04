@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/project/index.md", "reason": "Quality check for architecture drift and commit boundary"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Quality check for native macOS UI and row density"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Quality check for bridge boundary"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Quality check for Rust domain snapshot behavior"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Visual check target for run recovery and registry"}
+{"file": "documents/11-localport-prototype-reference.md", "reason": "Check LocalPort reference boundaries and anti patterns"}
+{"file": "documents/10-technology-stack-decision.md", "reason": "Check architecture stays SwiftUI AppKit Rust"}

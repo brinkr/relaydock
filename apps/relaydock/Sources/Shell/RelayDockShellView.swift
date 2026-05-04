@@ -22,6 +22,7 @@ struct RelayDockShellView: View {
         .background(RelayDockColor.windowBackground)
         .task {
             viewModel.loadRunRecoverySnapshot()
+            viewModel.loadRegistrySnapshot()
         }
     }
 
@@ -50,7 +51,14 @@ struct RelayDockShellView: View {
                 }
             )
         case .registry:
-            RegistryView()
+            RegistryView(
+                snapshot: viewModel.registrySnapshot,
+                selectedHostId: $viewModel.selectedRegistryHostId,
+                bridgeError: viewModel.registryError,
+                onReload: {
+                    viewModel.loadRegistrySnapshot()
+                }
+            )
         case .logsAndDiagnostics:
             LogsAndDiagnosticsView()
         case .preferences:

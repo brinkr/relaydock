@@ -62,6 +62,25 @@ final class RelayDockBridgeExecutor {
         return try unwrapRunRecoverySnapshot(result, actionDescription: "load run/recovery snapshot")
     }
 
+    func loadRegistrySnapshot() throws -> RegistrySnapshotResult {
+        let result = try execute(.loadRegistrySnapshot)
+
+        guard case let .registrySnapshot(snapshot) = result else {
+            throw BridgeErrorInfo(
+                code: .responseDecodeFailed,
+                summary: "Bridge returned an unexpected result type",
+                detail: "Expected registry_snapshot for load registry snapshot.",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: nil
+            )
+        }
+
+        return snapshot
+    }
+
     func startDemoRule(ruleId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
         let command = DemoRuleActionCommand(ruleId: ruleId, snapshot: snapshot)
         let result = try execute(.startDemoRule(command))

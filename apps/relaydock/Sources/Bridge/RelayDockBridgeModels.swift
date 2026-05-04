@@ -3,6 +3,7 @@ import Foundation
 enum RelayDockBridgeCommand: Encodable {
     case checkPortClaim(CheckPortClaimCommand)
     case loadRunRecoverySnapshot
+    case loadRegistrySnapshot
     case startDemoRule(DemoRuleActionCommand)
     case stopDemoRuntime(DemoRuntimeActionCommand)
     case clearDemoRecoveryItem(DemoRecoveryActionCommand)
@@ -27,6 +28,8 @@ enum RelayDockBridgeCommand: Encodable {
             try container.encode(command.knownUsages, forKey: .knownUsages)
         case .loadRunRecoverySnapshot:
             try container.encode("load_run_recovery_snapshot", forKey: .command)
+        case .loadRegistrySnapshot:
+            try container.encode("load_registry_snapshot", forKey: .command)
         case let .startDemoRule(command):
             try container.encode("start_demo_rule", forKey: .command)
             try container.encode(command.ruleId, forKey: .ruleId)
@@ -72,6 +75,7 @@ struct BridgeResponse: Decodable, Equatable {
 enum BridgeCommandResult: Decodable, Equatable {
     case portClaimCheck(PortClaimCheckResult)
     case runRecoverySnapshot(RunRecoverySnapshotResult)
+    case registrySnapshot(RegistrySnapshotResult)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -80,6 +84,7 @@ enum BridgeCommandResult: Decodable, Equatable {
     private enum ResultType: String, Decodable {
         case portClaimCheck = "port_claim_check"
         case runRecoverySnapshot = "run_recovery_snapshot"
+        case registrySnapshot = "registry_snapshot"
     }
 
     init(from decoder: Decoder) throws {
@@ -90,6 +95,8 @@ enum BridgeCommandResult: Decodable, Equatable {
             self = .portClaimCheck(try PortClaimCheckResult(from: decoder))
         case .runRecoverySnapshot:
             self = .runRecoverySnapshot(try RunRecoverySnapshotResult(from: decoder))
+        case .registrySnapshot:
+            self = .registrySnapshot(try RegistrySnapshotResult(from: decoder))
         }
     }
 }
@@ -173,6 +180,75 @@ struct RunRecoveryActionStatus: Codable, Equatable {
     var affectedRuntimeId: String?
     var affectedRecoveryId: String?
     var error: BridgeErrorInfo?
+}
+
+struct RegistrySnapshotResult: Codable, Equatable {
+    var refreshedAtEpochSeconds: UInt64
+    var hosts: [RegistryHost]
+    var selectedHostId: String
+}
+
+struct RegistryHost: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var endpoint: String
+    var status: RegistryHostStatus
+    var osHint: RegistryHostOsHint
+    var providerTargets: [RegistryProviderTarget]
+    var presets: [RegistryPreset]
+    var rules: [RegistryRule]
+}
+
+enum RegistryHostStatus: String, Codable {
+    case online
+    case offline
+}
+
+enum RegistryHostOsHint: String, Codable {
+    case macos
+    case ubuntu
+    case windows
+    case linux
+    case raspberryPi = "raspberry_pi"
+}
+
+struct RegistryProviderTarget: Codable, Equatable, Identifiable {
+    var id: String
+    var label: String
+    var kind: RegistryProviderKind
+}
+
+enum RegistryProviderKind: String, Codable {
+    case ssh
+    case tailscale
+}
+
+struct RegistryPreset: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var derivedFrom: String?
+    var rules: [RegistryPresetRule]
+}
+
+struct RegistryPresetRule: Codable, Equatable {
+    var serviceName: String
+    var targetLabel: String
+}
+
+struct RegistryRule: Codable, Equatable, Identifiable {
+    var id: String
+    var serviceName: String
+    var alias: String
+    var providerLabel: String
+    var portSummary: String
+    var runtimeState: RegistryRuleRuntimeState
+}
+
+enum RegistryRuleRuntimeState: String, Codable {
+    case running
+    case recoverable
+    case stopped
+    case error
 }
 
 struct BridgePortConflict: Codable, Equatable {

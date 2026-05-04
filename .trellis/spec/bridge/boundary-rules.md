@@ -65,6 +65,8 @@ RelayDockBridgeExecutor(executableURL: bridgeURL)
   Swift may store and re-submit that snapshot, but must not invent the runtime
   transition itself.
 - `suggested_port` is present only when the requested port conflicts and Rust can suggest another port.
+- `load_run_recovery_snapshot` returns runtime-facing host groups and rows. Rows must use domain states (`connected`, `reconnecting`, `error`, `recoverable`) rather than view names or LocalPort component props.
+- `load_registry_snapshot` returns configuration-facing hosts, provider targets, presets, and rules. Runtime state may appear only as a compact summary field on rules; Swift owns which host is selected and how details are laid out.
 - Rust core must not import Swift, SwiftUI, or AppKit.
 - Swift bridge models must stay outside SwiftUI views.
 
@@ -85,6 +87,7 @@ RelayDockBridgeExecutor(executableURL: bridgeURL)
 
 - Rust unit test for each command's success result.
 - Rust unit test for structured error envelope serialization.
+- Rust unit tests for `load_run_recovery_snapshot` and `load_registry_snapshot` must assert row/rule counts and key state variants so UI density regressions are visible.
 - Sidecar smoke test for success JSON and malformed-command JSON.
 - Swift build must compile bridge models and executor.
 
@@ -100,4 +103,10 @@ Correct:
 
 ```json
 {"command": "check_port_claim", "claim": {"port": 8088, "protocol": "Tcp", "owner_type": "RelayDockRuntime", "owner_ref": null}, "known_usages": []}
+```
+
+Correct registry snapshot request:
+
+```json
+{"command": "load_registry_snapshot"}
 ```
