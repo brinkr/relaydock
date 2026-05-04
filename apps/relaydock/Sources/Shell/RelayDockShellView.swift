@@ -84,9 +84,29 @@ struct RelayDockShellView: View {
                 }
             )
         case .logsAndDiagnostics:
-            LogsAndDiagnosticsView()
+            LogsAndDiagnosticsView(
+                runRecoverySnapshot: viewModel.runRecoverySnapshot,
+                registrySnapshot: viewModel.registrySnapshot,
+                runRecoveryError: viewModel.runRecoveryError,
+                registryError: viewModel.registryError,
+                bridgeExecutablePath: viewModel.bridgeExecutablePath,
+                isBridgeAvailable: viewModel.isBridgeAvailable,
+                onReload: {
+                    viewModel.reloadDiagnosticsWorkspace()
+                }
+            )
         case .preferences:
-            PreferencesView()
+            PreferencesView(
+                runRecoverySnapshot: viewModel.runRecoverySnapshot,
+                registrySnapshot: viewModel.registrySnapshot,
+                runRecoveryError: viewModel.runRecoveryError,
+                registryError: viewModel.registryError,
+                bridgeExecutablePath: viewModel.bridgeExecutablePath,
+                isBridgeAvailable: viewModel.isBridgeAvailable,
+                onReload: {
+                    viewModel.reloadDiagnosticsWorkspace()
+                }
+            )
         }
     }
 }

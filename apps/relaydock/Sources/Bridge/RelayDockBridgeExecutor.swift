@@ -17,6 +17,10 @@ final class RelayDockBridgeExecutor {
         self.decoder = decoder
     }
 
+    var executablePath: String {
+        executableURL.path
+    }
+
     func execute(_ command: RelayDockBridgeCommand) throws -> BridgeCommandResult {
         let commandData = try encoder.encode(command)
         let responseData = try runBridgeProcess(commandData: commandData)

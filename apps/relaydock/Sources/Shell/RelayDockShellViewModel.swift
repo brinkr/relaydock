@@ -53,6 +53,14 @@ final class RelayDockShellViewModel: ObservableObject {
         )
     }
 
+    var bridgeExecutablePath: String? {
+        bridgeExecutor?.executablePath
+    }
+
+    var isBridgeAvailable: Bool {
+        bridgeExecutor != nil
+    }
+
     func loadRunRecoverySnapshot() {
         guard let bridgeExecutor else {
             runRecoveryError = BridgeErrorInfo(
@@ -162,8 +170,13 @@ final class RelayDockShellViewModel: ObservableObject {
         case .registry:
             loadRegistrySnapshot()
         case .logsAndDiagnostics, .preferences:
-            break
+            reloadDiagnosticsWorkspace()
         }
+    }
+
+    func reloadDiagnosticsWorkspace() {
+        loadRunRecoverySnapshot()
+        loadRegistrySnapshot()
     }
 
     func collapseAllRunRecoveryHosts() {

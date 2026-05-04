@@ -46,3 +46,37 @@ Do not use unclear labels such as `编辑更改`.
 It can show runtime summaries, but must not become a second runtime console.
 
 Use a left host list and right detail pane. Prefer modal/sheet flows for SSH command import and focused edits.
+
+## Logs And Diagnostics
+
+`日志与诊断` is a diagnostic workspace, not a themed placeholder.
+
+Use:
+
+- left scope/source list for diagnostic ranges
+- center console/event workspace for structured lines
+- right inspector for checks, recovery candidates, and bridge facts
+- current `run/recovery` and `registry` snapshots as the first data source
+
+Avoid:
+
+- black card inside a white page
+- inventing a second Swift-owned runtime or provider state machine
+- pretending provider streaming logs already exist when the bridge does not expose them
+
+## Preferences
+
+`偏好设置` should stay narrow and native.
+
+Use:
+
+- left settings sections and right detail pane
+- bridge/provider/recovery summaries that reflect current shell context
+- sheet/popover explanations for MVP-only entry points
+- explicit copy when a control is session-local and not yet persisted
+
+Avoid:
+
+- fake saved settings when no persistence exists yet
+- dashboard-style cards or marketing copy
+- writing runtime strategy logic into Swift just to make the settings page feel richer
