@@ -326,3 +326,72 @@ let store = open_registry_store()?;
 let configuration = store.load_configuration()?.unwrap_or_default();
 Ok(run_recovery_snapshot_from_configuration(&configuration))
 ```
+
+## Start Rule OpenSSH Bridge Extension
+
+### 1. Scope / Trigger
+
+- Trigger: `运行与恢复` now displays saved registry rules as recoverable candidates, so the `恢复` action needs its first real provider-backed command.
+- Scope: `start_rule` starts one saved SSH rule through Rust core and returns a full `run_recovery_snapshot`.
+- Boundary: the current JSON sidecar is one command per process. This command may start OpenSSH and persist the observed runtime instance, but it does not provide a durable process supervisor or reusable child handle for later stop/observe commands.
+
+### 2. Signatures
+
+Rust command:
+
+```json
+{"command":"start_rule","rule_id":"rule-react"}
+```
+
+Swift entrypoints:
+
+```swift
+startRule(ruleId:)
+RelayDockBridgeExecutor.startRule(ruleId:)
+```
+
+### 3. Contracts
+
+- Rust reads SQLite-backed `ConfigurationSnapshot` and finds `Host`, `Rule`, and `ProviderTarget` by `rule_id`.
+- Rust must launch from structured rule fields and provider target fields; imported raw SSH command text must not be used as source of truth.
+- Only SSH provider targets are supported in this slice.
+- On launch success, Rust immediately observes provider status once, upserts the resulting `RuntimeInstance` into `RuntimeSnapshot`, and returns a full `run_recovery_snapshot`.
+- `load_run_recovery_snapshot` must merge persisted runtime instances with saved configuration projection. Runtime rows take precedence over recoverable config rows for the same rule.
+- Swift must call `start_rule` for the `恢复` action and render the returned snapshot; Swift must not construct SSH commands or mutate runtime rows locally.
+
+### 4. Validation & Error Matrix
+
+- Missing `rule_id` / unknown rule -> `registry_validation_failed`.
+- Rule references missing host/provider target -> `registry_validation_failed`.
+- Non-SSH provider target -> `unsupported_provider_target`.
+- Provider target mismatch -> `invalid_provider_target`.
+- OpenSSH spawn/status failure or immediate provider exit -> `provider_process_failed`.
+- SQLite runtime save/load failure -> `storage_failed`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: saved SSH rule starts through system OpenSSH, runtime snapshot stores `runtime-{rule_id}`, and run/recovery reload shows a connected row.
+- Base: non-SSH target returns a structured bridge error and does not fake a connected row.
+- Bad: Swift handles `恢复` by changing `row.state = .connected` without a bridge round trip.
+
+### 6. Tests Required
+
+- Rust unit test using a mock provider launcher verifies command construction, immediate observation, persisted runtime snapshot, and connected row projection.
+- Rust unit test for missing rule -> `registry_validation_failed`.
+- Rust unit test for non-SSH target -> `unsupported_provider_target`.
+- Rust unit test that a subsequent `load_run_recovery_snapshot` projects saved runtime instances.
+- Swift build must compile new bridge command/model/executor/view model path.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```swift
+viewModel.runRecoverySnapshot?.hosts[0].rows[0].state = .connected
+```
+
+Correct:
+
+```swift
+applySnapshot(try bridgeExecutor.startRule(ruleId: ruleId))
+```

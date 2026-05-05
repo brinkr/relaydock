@@ -85,10 +85,19 @@ final class RelayDockShellViewModel: ObservableObject {
         isLoadingRunRecovery = false
     }
 
-    func recoverDemoRule(ruleId: String) {
-        performSnapshotAction { executor, snapshot in
-            try executor.startDemoRule(ruleId: ruleId, snapshot: snapshot)
+    func startRule(ruleId: String) {
+        guard let bridgeExecutor else {
+            loadRunRecoverySnapshot()
+            return
         }
+
+        isLoadingRunRecovery = true
+        do {
+            applySnapshot(try bridgeExecutor.startRule(ruleId: ruleId))
+        } catch {
+            applyBridgeFailure(error)
+        }
+        isLoadingRunRecovery = false
     }
 
     func retryDemoRuntime(runtimeId: String) {

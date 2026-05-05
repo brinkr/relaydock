@@ -114,6 +114,12 @@ final class RelayDockBridgeExecutor {
         return try unwrapRegistrySnapshot(result, actionDescription: "save registry rule")
     }
 
+    func startRule(ruleId: String) throws -> RunRecoverySnapshotResult {
+        let command = StartRuleCommand(ruleId: ruleId)
+        let result = try execute(.startRule(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "start rule")
+    }
+
     func startDemoRule(ruleId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
         let command = DemoRuleActionCommand(ruleId: ruleId, snapshot: snapshot)
         let result = try execute(.startDemoRule(command))

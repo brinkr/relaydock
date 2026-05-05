@@ -44,7 +44,7 @@ struct RelayDockShellView: View {
                 bridgeError: viewModel.runRecoveryError,
                 collapseCommand: viewModel.runRecoveryCollapseCommand,
                 onRecover: { ruleId in
-                    viewModel.recoverDemoRule(ruleId: ruleId)
+                    viewModel.startRule(ruleId: ruleId)
                 },
                 onRetry: { runtimeId in
                     viewModel.retryDemoRuntime(runtimeId: runtimeId)
@@ -77,7 +77,7 @@ struct RelayDockShellView: View {
                     try viewModel.saveRegistryRule(draft)
                 },
                 onRecoverRule: { ruleId in
-                    viewModel.recoverDemoRule(ruleId: ruleId)
+                    viewModel.startRule(ruleId: ruleId)
                     viewModel.selection = .runAndRecovery
                 },
                 onRetryRule: { ruleId in

@@ -1,11 +1,18 @@
 use crate::domain::{
     Host as DomainHost, HostId, HostStatusHint, LocalAlias, Metadata, OsFamily, PortMapping,
     Preset as DomainPreset, ProviderTarget as DomainProviderTarget, ProviderTargetId,
-    ProviderTargetType, Rule as DomainRule, RuleId,
+    ProviderTargetType, Rule as DomainRule, RuleId, RuntimeInstanceId,
 };
 use crate::ports::{detect_conflict, next_available_port, PortClaim, PortConflict, PortUsage};
+use crate::providers::{
+    OpenSshProvider, ProviderDiagnostic, ProviderDiagnosticCode, ProviderError,
+    ProviderProcessLauncher,
+};
+use crate::runtime::RuntimeStatus;
 use crate::ssh_import::{parse_ssh_command, ParseSshCommandCommand, ParseSshCommandResult};
-use crate::storage::{ConfigurationSnapshot, RelayDockStore, StorageError, StorageValidationError};
+use crate::storage::{
+    ConfigurationSnapshot, RelayDockStore, RuntimeSnapshot, StorageError, StorageValidationError,
+};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(not(test))]
@@ -22,6 +29,7 @@ pub enum BridgeCommand {
     LoadRegistrySnapshot,
     SaveRegistryHost(SaveRegistryHostCommand),
     SaveRegistryRule(SaveRegistryRuleCommand),
+    StartRule(StartRuleCommand),
     StartDemoRule(DemoRuleActionCommand),
     RetryDemoRuntime(DemoRuntimeActionCommand),
     StopDemoRuntime(DemoRuntimeActionCommand),
@@ -86,6 +94,11 @@ pub struct SaveRegistryHostCommand {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveRegistryRuleCommand {
     pub rule: RegistryRuleDraft,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartRuleCommand {
+    pub rule_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -502,6 +515,19 @@ impl BridgeError {
             suggested_recovery: Some("检查 RelayDock 本地存储路径与写入权限。".to_string()),
         }
     }
+
+    pub fn provider_failure(diagnostic: &ProviderDiagnostic) -> Self {
+        Self {
+            code: bridge_error_code_from_provider(&diagnostic.code),
+            summary: diagnostic.summary.clone(),
+            detail: diagnostic.detail.clone(),
+            affected_port: None,
+            affected_rule_id: diagnostic.rule_id.clone(),
+            affected_runtime_id: diagnostic.runtime_instance_id.clone(),
+            affected_recovery_id: None,
+            suggested_recovery: diagnostic.suggested_recovery.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -512,6 +538,9 @@ pub enum BridgeErrorCode {
     InvalidDemoAction,
     RegistryValidationFailed,
     StorageFailed,
+    UnsupportedProviderTarget,
+    InvalidProviderTarget,
+    ProviderProcessFailed,
 }
 
 pub fn execute_bridge_command(
@@ -547,6 +576,9 @@ pub fn execute_bridge_command(
         )),
         BridgeCommand::SaveRegistryRule(command) => Ok(BridgeCommandResult::RegistrySnapshot(
             save_registry_rule(command)?,
+        )),
+        BridgeCommand::StartRule(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
+            start_rule(command)?,
         )),
         BridgeCommand::StartDemoRule(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             start_demo_rule(command.snapshot, &command.rule_id),
@@ -640,6 +672,22 @@ pub fn save_registry_rule(
     {
         let mut store = open_registry_store()?;
         save_registry_rule_to_store(&mut store, command)
+    }
+}
+
+pub fn start_rule(
+    command: StartRuleCommand,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        start_rule_to_store(&mut store, command, OpenSshProvider::system())
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        start_rule_to_store(&mut store, command, OpenSshProvider::system())
     }
 }
 
@@ -1355,12 +1403,20 @@ fn load_registry_snapshot_from_store(
 fn load_run_recovery_snapshot_from_store(
     store: &RelayDockStore,
 ) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
-    let snapshot = store
+    let configuration = store
         .load_configuration()
         .map_err(storage_error_to_bridge)?
         .unwrap_or_default();
+    let runtime_snapshot = store
+        .load_runtime_snapshot()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
 
-    Ok(run_recovery_snapshot_from_configuration(&snapshot))
+    Ok(run_recovery_snapshot_from_store_snapshots(
+        &configuration,
+        &runtime_snapshot,
+        None,
+    ))
 }
 
 fn save_registry_host_to_store(
@@ -1429,6 +1485,124 @@ fn save_registry_rule_to_store(
     ))
 }
 
+fn start_rule_to_store<L>(
+    store: &mut RelayDockStore,
+    command: StartRuleCommand,
+    provider: OpenSshProvider<L>,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>>
+where
+    L: ProviderProcessLauncher,
+{
+    let configuration = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let rule_id = RuleId::from(command.rule_id.trim().to_string());
+    let (host, rule, provider_target) = find_start_rule_context(&configuration, &rule_id)?;
+    let runtime_instance_id = RuntimeInstanceId::from(format!("runtime-{rule_id}"));
+    let mut handle = provider
+        .start_rule(host, rule, provider_target, runtime_instance_id.clone())
+        .map_err(provider_error_to_bridge)?;
+    let observation = handle
+        .observe_status(SystemTime::now())
+        .map_err(provider_error_to_bridge)?;
+    let mut runtime_snapshot = store
+        .load_runtime_snapshot()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+
+    upsert_runtime_instance(&mut runtime_snapshot, observation.runtime_instance);
+    store
+        .save_runtime_snapshot(&runtime_snapshot)
+        .map_err(storage_error_to_bridge)?;
+
+    let last_action = observation.diagnostic.map_or_else(
+        || {
+            Some(RunRecoveryActionStatus {
+                ok: true,
+                message: "已启动规则".to_string(),
+                affected_rule_id: Some(rule_id.to_string()),
+                affected_runtime_id: Some(runtime_instance_id.to_string()),
+                affected_recovery_id: Some(format!("recovery-{rule_id}")),
+                error: None,
+            })
+        },
+        |diagnostic| {
+            let error = BridgeError::provider_failure(&diagnostic);
+            Some(RunRecoveryActionStatus {
+                ok: false,
+                message: error.summary.clone(),
+                affected_rule_id: Some(rule_id.to_string()),
+                affected_runtime_id: Some(runtime_instance_id.to_string()),
+                affected_recovery_id: Some(format!("recovery-{rule_id}")),
+                error: Some(error),
+            })
+        },
+    );
+
+    Ok(run_recovery_snapshot_from_store_snapshots(
+        &configuration,
+        &runtime_snapshot,
+        last_action,
+    ))
+}
+
+fn find_start_rule_context<'a>(
+    configuration: &'a ConfigurationSnapshot,
+    rule_id: &RuleId,
+) -> Result<(&'a DomainHost, &'a DomainRule, &'a DomainProviderTarget), Box<BridgeError>> {
+    let rule = configuration
+        .rules
+        .iter()
+        .find(|rule| rule.id == *rule_id)
+        .ok_or_else(|| {
+            Box::new(BridgeError::registry_validation(
+                "未找到要启动的规则",
+                Some(format!("rule_id={rule_id}")),
+            ))
+        })?;
+    let host = configuration
+        .hosts
+        .iter()
+        .find(|host| host.id == rule.host_id)
+        .ok_or_else(|| {
+            Box::new(BridgeError::registry_validation(
+                "规则引用的主机不存在",
+                Some(format!("rule_id={rule_id}, host_id={}", rule.host_id)),
+            ))
+        })?;
+    let provider_target = host
+        .provider_targets
+        .iter()
+        .find(|target| target.id == rule.provider_target_id)
+        .ok_or_else(|| {
+            Box::new(BridgeError::registry_validation(
+                "规则引用的 provider target 不存在",
+                Some(format!(
+                    "rule_id={rule_id}, provider_target_id={}",
+                    rule.provider_target_id
+                )),
+            ))
+        })?;
+
+    Ok((host, rule, provider_target))
+}
+
+fn upsert_runtime_instance(
+    runtime_snapshot: &mut RuntimeSnapshot,
+    instance: crate::runtime::RuntimeInstance,
+) {
+    if let Some(index) = runtime_snapshot
+        .instances
+        .iter()
+        .position(|existing| existing.id == instance.id)
+    {
+        runtime_snapshot.instances[index] = instance;
+    } else {
+        runtime_snapshot.instances.push(instance);
+    }
+}
+
 fn registry_snapshot_from_configuration(
     snapshot: &ConfigurationSnapshot,
     selected_host_id: Option<&str>,
@@ -1455,32 +1629,35 @@ fn registry_snapshot_from_configuration(
     }
 }
 
-fn run_recovery_snapshot_from_configuration(
-    snapshot: &ConfigurationSnapshot,
+fn run_recovery_snapshot_from_store_snapshots(
+    configuration: &ConfigurationSnapshot,
+    runtime_snapshot: &RuntimeSnapshot,
+    last_action: Option<RunRecoveryActionStatus>,
 ) -> RunRecoverySnapshotResult {
-    let hosts = snapshot
+    let hosts = configuration
         .hosts
         .iter()
-        .filter_map(|host| run_recovery_host_from_domain(snapshot, host))
+        .filter_map(|host| run_recovery_host_from_domain(configuration, runtime_snapshot, host))
         .collect::<Vec<_>>();
 
     RunRecoverySnapshotResult {
         refreshed_at_epoch_seconds: current_epoch_seconds(),
         summary: RunRecoverySummary::from_hosts(&hosts),
         hosts,
-        last_action: None,
+        last_action,
     }
 }
 
 fn run_recovery_host_from_domain(
-    snapshot: &ConfigurationSnapshot,
+    configuration: &ConfigurationSnapshot,
+    runtime_snapshot: &RuntimeSnapshot,
     host: &DomainHost,
 ) -> Option<RunRecoveryHost> {
-    let rows = snapshot
+    let rows = configuration
         .rules
         .iter()
         .filter(|rule| rule.host_id == host.id)
-        .map(|rule| run_recovery_row_from_domain(snapshot, rule))
+        .map(|rule| run_recovery_row_from_domain(configuration, runtime_snapshot, rule))
         .collect::<Vec<_>>();
 
     if rows.is_empty() {
@@ -1497,9 +1674,18 @@ fn run_recovery_host_from_domain(
 }
 
 fn run_recovery_row_from_domain(
-    snapshot: &ConfigurationSnapshot,
+    configuration: &ConfigurationSnapshot,
+    runtime_snapshot: &RuntimeSnapshot,
     rule: &DomainRule,
 ) -> RunRecoveryRow {
+    if let Some(instance) = runtime_snapshot
+        .instances
+        .iter()
+        .find(|instance| instance.rule_id == rule.id)
+    {
+        return run_recovery_row_from_runtime(configuration, rule, instance);
+    }
+
     RunRecoveryRow {
         id: format!("recovery-{}", rule.id),
         rule_id: rule.id.to_string(),
@@ -1512,7 +1698,7 @@ fn run_recovery_row_from_domain(
             .as_ref()
             .map(|alias| alias.hostname.clone())
             .unwrap_or_default(),
-        provider_label: provider_label(snapshot, &rule.provider_target_id),
+        provider_label: provider_label(configuration, &rule.provider_target_id),
         port_summary: port_summary(rule),
         state: RunRecoveryRowState::Recoverable,
         status_text: "待恢复".to_string(),
@@ -1524,6 +1710,133 @@ fn run_recovery_row_from_domain(
         }),
         actions: recoverable_actions(),
     }
+}
+
+fn run_recovery_row_from_runtime(
+    configuration: &ConfigurationSnapshot,
+    rule: &DomainRule,
+    instance: &crate::runtime::RuntimeInstance,
+) -> RunRecoveryRow {
+    let state = run_recovery_state_from_runtime_status(&instance.status);
+    let (status_text, actions) = match state {
+        RunRecoveryRowState::Connected => ("运行中".to_string(), stop_actions()),
+        RunRecoveryRowState::Reconnecting => (
+            "重连中".to_string(),
+            vec![
+                RunRecoveryAction {
+                    action: RunRecoveryActionKind::Retry,
+                    label: "重试".to_string(),
+                },
+                RunRecoveryAction {
+                    action: RunRecoveryActionKind::Stop,
+                    label: "停止".to_string(),
+                },
+            ],
+        ),
+        RunRecoveryRowState::Error => (
+            "异常".to_string(),
+            vec![
+                RunRecoveryAction {
+                    action: RunRecoveryActionKind::Retry,
+                    label: "重试".to_string(),
+                },
+                RunRecoveryAction {
+                    action: RunRecoveryActionKind::Stop,
+                    label: "停止".to_string(),
+                },
+            ],
+        ),
+        RunRecoveryRowState::Recoverable => ("待恢复".to_string(), recoverable_actions()),
+    };
+
+    RunRecoveryRow {
+        id: instance.id.to_string(),
+        rule_id: rule.id.to_string(),
+        runtime_id: Some(instance.id.to_string()),
+        recovery_id: None,
+        host_id: rule.host_id.to_string(),
+        service_name: rule.name.clone(),
+        alias: rule
+            .alias
+            .as_ref()
+            .map(|alias| alias.hostname.clone())
+            .unwrap_or_default(),
+        provider_label: provider_label(configuration, &instance.provider_target_id),
+        port_summary: runtime_port_summary(instance),
+        state,
+        status_text,
+        telemetry: runtime_telemetry(instance),
+        error: instance
+            .last_error
+            .as_ref()
+            .map(|error| RunRecoveryRowError {
+                code: runtime_error_code(error),
+                summary: error.summary.clone(),
+                detail: error.detail.clone(),
+            }),
+        actions,
+    }
+}
+
+fn run_recovery_state_from_runtime_status(status: &RuntimeStatus) -> RunRecoveryRowState {
+    match status {
+        RuntimeStatus::Connected => RunRecoveryRowState::Connected,
+        RuntimeStatus::Starting | RuntimeStatus::Reconnecting => RunRecoveryRowState::Reconnecting,
+        RuntimeStatus::Error => RunRecoveryRowState::Error,
+        RuntimeStatus::Configured => RunRecoveryRowState::Recoverable,
+    }
+}
+
+fn runtime_port_summary(instance: &crate::runtime::RuntimeInstance) -> String {
+    let mut ports = instance
+        .local_bindings
+        .iter()
+        .map(|binding| binding.local_port.to_string())
+        .collect::<Vec<_>>();
+
+    if ports.is_empty() {
+        ports.push("-".to_string());
+    }
+
+    ports.join(" + ")
+}
+
+fn runtime_telemetry(instance: &crate::runtime::RuntimeInstance) -> Option<String> {
+    match (&instance.uptime_seconds, &instance.latency_ms) {
+        (None, None) if instance.failure_count_today == 0 => None,
+        (uptime, latency) => Some(format!(
+            "{} · {} · {}次",
+            uptime
+                .map(format_duration)
+                .unwrap_or_else(|| "0m".to_string()),
+            latency
+                .map(|latency| format!("{latency}ms"))
+                .unwrap_or_else(|| "-".to_string()),
+            instance.failure_count_today
+        )),
+    }
+}
+
+fn format_duration(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+
+    if hours > 0 {
+        format!("{hours}h {minutes:02}m")
+    } else {
+        format!("{minutes}m")
+    }
+}
+
+fn runtime_error_code(error: &crate::runtime::RuntimeErrorInfo) -> String {
+    match error.code {
+        crate::runtime::RuntimeErrorCode::KeepAliveTimeout => "keepalive_timeout",
+        crate::runtime::RuntimeErrorCode::ProviderExited => "provider_exited",
+        crate::runtime::RuntimeErrorCode::PortConflict => "local_port_conflict",
+        crate::runtime::RuntimeErrorCode::InvalidConfiguration => "invalid_configuration",
+        crate::runtime::RuntimeErrorCode::Unknown => "unknown",
+    }
+    .to_string()
 }
 
 fn provider_summary_for_host(host: &DomainHost) -> String {
@@ -2011,8 +2324,25 @@ fn storage_error_to_bridge(error: StorageError) -> Box<BridgeError> {
     }
 }
 
+fn provider_error_to_bridge(error: ProviderError) -> Box<BridgeError> {
+    Box::new(BridgeError::provider_failure(error.diagnostic()))
+}
+
 fn validation_error_to_bridge(error: StorageValidationError) -> BridgeError {
     BridgeError::registry_validation("资源登记配置校验失败", Some(error.to_string()))
+}
+
+fn bridge_error_code_from_provider(code: &ProviderDiagnosticCode) -> BridgeErrorCode {
+    match code {
+        ProviderDiagnosticCode::UnsupportedProviderTarget => {
+            BridgeErrorCode::UnsupportedProviderTarget
+        }
+        ProviderDiagnosticCode::InvalidProviderTarget => BridgeErrorCode::InvalidProviderTarget,
+        ProviderDiagnosticCode::ProcessStartFailed
+        | ProviderDiagnosticCode::ProcessStatusFailed
+        | ProviderDiagnosticCode::ProcessTerminationFailed
+        | ProviderDiagnosticCode::ProcessExited => BridgeErrorCode::ProviderProcessFailed,
+    }
 }
 
 fn current_epoch_seconds() -> u64 {
@@ -2037,7 +2367,45 @@ fn demo_now_epoch_seconds() -> u64 {
 mod tests {
     use super::*;
     use crate::ports::{PortOwnerType, PortProtocol};
+    use crate::providers::{OpenSshCommand, ProviderProcess, ProviderProcessExit};
     use serde_json::json;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[derive(Clone, Debug)]
+    struct MockLauncher {
+        launched: Rc<RefCell<Vec<OpenSshCommand>>>,
+        next_process: MockProcess,
+    }
+
+    impl ProviderProcessLauncher for MockLauncher {
+        type Process = MockProcess;
+
+        fn launch(&self, command: &OpenSshCommand) -> Result<Self::Process, ProviderError> {
+            self.launched.borrow_mut().push(command.clone());
+            Ok(self.next_process.clone())
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct MockProcess {
+        pid: Option<u32>,
+        exit: Option<ProviderProcessExit>,
+    }
+
+    impl ProviderProcess for MockProcess {
+        fn process_id(&self) -> Option<u32> {
+            self.pid
+        }
+
+        fn try_wait(&mut self) -> Result<Option<ProviderProcessExit>, ProviderError> {
+            Ok(self.exit.clone())
+        }
+
+        fn terminate(&mut self) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
 
     fn tcp_claim(port: u16) -> PortClaim {
         PortClaim {
@@ -2130,6 +2498,12 @@ mod tests {
                 description: None,
             }],
         }
+    }
+
+    fn sample_configuration_with_ssh_rule() -> ConfigurationSnapshot {
+        let mut configuration = sample_configuration();
+        configuration.rules[0].provider_target_id = ProviderTargetId::from("target-home-ssh");
+        configuration
     }
 
     #[test]
@@ -2403,6 +2777,178 @@ mod tests {
         assert_eq!(snapshot.summary.running_forwards, 0);
         assert_eq!(snapshot.summary.recoverable_count, 1);
         assert_eq!(snapshot.summary.message, "存在可恢复的转发");
+    }
+
+    #[test]
+    fn start_rule_to_store_launches_ssh_and_persists_connected_runtime_snapshot() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration_with_ssh_rule())
+            .expect("configuration saves");
+        let launched = Rc::new(RefCell::new(Vec::new()));
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: launched.clone(),
+            next_process: MockProcess {
+                pid: Some(4242),
+                exit: None,
+            },
+        });
+
+        let snapshot = start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect("rule starts");
+
+        assert_eq!(launched.borrow().len(), 1);
+        assert_eq!(
+            launched.borrow()[0].args,
+            vec![
+                "-N",
+                "-T",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-o",
+                "ServerAliveInterval=15",
+                "-o",
+                "ServerAliveCountMax=2",
+                "-p",
+                "22",
+                "-L",
+                "3000:127.0.0.1:3000",
+                "-L",
+                "3001:127.0.0.1:3001",
+                "admin@192.168.1.5",
+            ]
+        );
+        assert!(snapshot
+            .last_action
+            .as_ref()
+            .is_some_and(|status| status.ok));
+        assert_eq!(snapshot.summary.connected_hosts, 1);
+        assert_eq!(snapshot.summary.running_forwards, 1);
+        assert_eq!(snapshot.summary.recoverable_count, 0);
+
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.rule_id, "rule-react");
+        assert_eq!(row.runtime_id.as_deref(), Some("runtime-rule-react"));
+        assert_eq!(row.recovery_id, None);
+        assert_eq!(row.state, RunRecoveryRowState::Connected);
+        assert_eq!(row.status_text, "运行中");
+        assert_eq!(row.provider_label, "SSH · 家");
+        assert_eq!(row.port_summary, "3000 + 3001");
+        assert!(row
+            .actions
+            .iter()
+            .any(|action| action.action == RunRecoveryActionKind::Stop));
+
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(runtime_snapshot.instances.len(), 1);
+        assert_eq!(
+            runtime_snapshot.instances[0].status,
+            RuntimeStatus::Connected
+        );
+    }
+
+    #[test]
+    fn start_rule_to_store_returns_structured_error_for_missing_rule() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration_with_ssh_rule())
+            .expect("configuration saves");
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: Rc::new(RefCell::new(Vec::new())),
+            next_process: MockProcess {
+                pid: None,
+                exit: None,
+            },
+        });
+
+        let error = start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "missing-rule".to_string(),
+            },
+            provider,
+        )
+        .expect_err("missing rule must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::RegistryValidationFailed);
+        assert_eq!(error.summary, "未找到要启动的规则");
+        assert!(error
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("missing-rule")));
+    }
+
+    #[test]
+    fn start_rule_to_store_maps_non_ssh_provider_target_error() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration())
+            .expect("configuration saves");
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: Rc::new(RefCell::new(Vec::new())),
+            next_process: MockProcess {
+                pid: None,
+                exit: None,
+            },
+        });
+
+        let error = start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect_err("non-ssh target must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::UnsupportedProviderTarget);
+        assert_eq!(error.affected_rule_id.as_deref(), Some("rule-react"));
+    }
+
+    #[test]
+    fn load_run_recovery_snapshot_projects_saved_runtime_instances() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: Rc::new(RefCell::new(Vec::new())),
+            next_process: MockProcess {
+                pid: Some(4242),
+                exit: None,
+            },
+        });
+        start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect("rule starts");
+
+        let snapshot =
+            load_run_recovery_snapshot_from_store(&store).expect("run/recovery snapshot loads");
+
+        assert_eq!(
+            snapshot.hosts[0].rows[0].state,
+            RunRecoveryRowState::Connected
+        );
+        assert_eq!(
+            snapshot.hosts[0].rows[0].runtime_id.as_deref(),
+            Some("runtime-rule-react")
+        );
+        assert_eq!(snapshot.summary.recoverable_count, 0);
     }
 
     #[test]

@@ -1,0 +1,14 @@
+{"file":".trellis/spec/project/index.md","reason":"Project architecture, product-doc routing, and commit boundary rules."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Bridge command/result contracts and JSON sidecar lifecycle limits."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Rust core ownership and pre-development checklist."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"OpenSSH provider command construction, process lifecycle, diagnostics, and tests."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"RuntimeSnapshot persistence and structured storage/provider error behavior."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"RuntimeInstance, RecoveryItem, and LocalPortOverride boundaries."}
+{"file":".trellis/spec/swift-shell/index.md","reason":"Swift shell ownership and Chinese-first native UI constraints."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Prevents Swift from owning provider orchestration state machine."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Run/recovery action semantics and row rendering."}
+{"file":"documents/03-domain-model.md","reason":"Host, ProviderTarget, Rule, RuntimeInstance, and RecoveryItem definitions."}
+{"file":"documents/04-runtime-state-machine.md","reason":"Runtime states and recovery action behavior."}
+{"file":"documents/06-provider-and-network-scenarios.md","reason":"Provider abstraction and SSH/Tailscale boundaries."}
+{"file":"documents/08-import-export-and-ai.md","reason":"Structured command/query expectations and no raw SSH source-of-truth rule."}
+{"file":".trellis/tasks/05-05-start-rule-openssh-bridge/prd.md","reason":"Task-specific start_rule MVP scope and sidecar lifecycle limitation."}

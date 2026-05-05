@@ -1,0 +1,13 @@
+{"file":".trellis/spec/project/index.md","reason":"Verify architecture, Chinese-first copy, and document-style commit compliance."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Verify start_rule command contract, sidecar limitation, and result/error shape."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Verify Rust-owned provider orchestration and structured diagnostics."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"Verify OpenSSH launch uses structured Rule data and provider diagnostics."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"Verify RuntimeSnapshot persistence and no credential storage regression."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"Verify runtime/recovery state distinctions and temporary override boundaries."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Verify Swift only invokes bridge and renders returned snapshots."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Verify run/recovery actions remain explicit and native."}
+{"file":"documents/03-domain-model.md","reason":"Verify host/rule/provider/runtime relationships."}
+{"file":"documents/04-runtime-state-machine.md","reason":"Verify row state/action semantics."}
+{"file":"documents/06-provider-and-network-scenarios.md","reason":"Verify provider abstraction and SSH/Tailscale scope."}
+{"file":"documents/08-import-export-and-ai.md","reason":"Verify structured command/query behavior and no raw SSH command persistence."}
+{"file":".trellis/tasks/05-05-start-rule-openssh-bridge/prd.md","reason":"Verify all acceptance criteria and out-of-scope boundaries."}
