@@ -1,0 +1,6 @@
+{"file":".trellis/spec/swift-shell/index.md","reason":"Swift shell entry checklist and native macOS quality bar for UI implementation."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Page-specific UI patterns for shell, run/recovery, registry, logs, and preferences."}
+{"file":".trellis/spec/swift-shell/quality-guidelines.md","reason":"Swift shell implementation quality constraints while refining views."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Keep UI refinements out of Rust-owned domain state and avoid Swift state-machine drift."}
+{"file":".trellis/spec/project/product-constraints.md","reason":"Preserve RelayDock product identity and avoid browser/terminal/session-manager drift."}
+{"file":".trellis/spec/project/commit-guidelines.md","reason":"Commit message must document the concrete reason and purpose of the change."}

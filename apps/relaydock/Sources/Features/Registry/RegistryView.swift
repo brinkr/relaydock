@@ -82,8 +82,8 @@ struct RegistryView: View {
                 .accessibilityLabel("新建资源分组")
             }
             .padding(.horizontal, 12)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
             if let snapshot {
                 ScrollView {
@@ -112,8 +112,8 @@ struct RegistryView: View {
                 Spacer()
             }
         }
-        .frame(width: 260)
-        .background(RelayDockColor.sidebarBackground.opacity(0.56))
+        .frame(width: 244)
+        .background(RelayDockColor.sidebarBackground)
     }
 }
 
@@ -216,7 +216,7 @@ private struct RegistryHostDetail: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
                     RegistryPresetsSection(
                         presets: host.presets,
                         onNewPreset: {
@@ -246,7 +246,7 @@ private struct RegistryHostDetail: View {
                     )
                 }
                 .padding(.horizontal, 18)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -292,7 +292,7 @@ private struct RegistryHostHeader: View {
             .buttonStyle(.borderless)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .background(RelayDockColor.contentBackground)
     }
 
@@ -368,7 +368,7 @@ private struct RegistryPresetRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 6)
@@ -460,6 +460,11 @@ private struct RegistryRuleRow: View {
     let onRetryRule: (String) -> Void
     let onStopRule: (String) -> Void
 
+    private enum Metrics {
+        static let statusWidth: CGFloat = 76
+        static let actionWidth: CGFloat = 176
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             ServiceGlyph(name: rule.serviceName)
@@ -468,6 +473,7 @@ private struct RegistryRuleRow: View {
                 HStack(spacing: 7) {
                     Text(rule.serviceName)
                         .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
 
                     Text(rule.alias)
                         .font(.system(size: 10, design: .monospaced))
@@ -486,41 +492,39 @@ private struct RegistryRuleRow: View {
             Label(rule.runtimeState.title, systemImage: "circle.fill")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(rule.runtimeState.color)
-                .frame(width: 68, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: Metrics.statusWidth, alignment: .leading)
 
-            Button("编辑映射") {
-                onEditMapping(rule)
-            }
-                .font(.system(size: 11, weight: .medium))
-                .buttonStyle(.borderless)
-            Button("编辑规则") {
-                onEditRule(rule)
-            }
-                .font(.system(size: 11, weight: .medium))
-                .buttonStyle(.borderless)
+            HStack(spacing: 8) {
+                Button("编辑映射") {
+                    onEditMapping(rule)
+                }
 
-            if rule.runtimeState == .running {
-                Button("停止", role: .destructive) {
-                    onStopRule(rule.id)
+                Button("编辑规则") {
+                    onEditRule(rule)
                 }
-                    .font(.system(size: 11, weight: .medium))
-                    .buttonStyle(.borderless)
-            } else if rule.runtimeState == .recoverable {
-                Button("恢复") {
-                    onRecoverRule(rule.id)
+
+                if rule.runtimeState == .running {
+                    Button("停止", role: .destructive) {
+                        onStopRule(rule.id)
+                    }
+                } else if rule.runtimeState == .recoverable {
+                    Button("恢复") {
+                        onRecoverRule(rule.id)
+                    }
+                } else if rule.runtimeState == .error {
+                    Button("重试") {
+                        onRetryRule(rule.id)
+                    }
                 }
-                    .font(.system(size: 11, weight: .medium))
-                    .buttonStyle(.borderless)
-            } else if rule.runtimeState == .error {
-                Button("重试") {
-                    onRetryRule(rule.id)
-                }
-                    .font(.system(size: 11, weight: .medium))
-                    .buttonStyle(.borderless)
             }
+            .font(.system(size: 11, weight: .medium))
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .frame(width: Metrics.actionWidth, alignment: .trailing)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
     }
 }
 
@@ -545,6 +549,7 @@ private struct RegistryRuleFilterField: View {
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("清除规则筛选")
             }
         }
         .padding(.horizontal, 8)

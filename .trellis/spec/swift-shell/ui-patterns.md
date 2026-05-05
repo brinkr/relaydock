@@ -10,6 +10,8 @@ Use a native desktop shell:
 - sheet/popover for focused edits
 - preferences window for settings
 
+Window-level toolbar actions should live in the AppKit `NSToolbar` owned by the window controller. Do not add a second SwiftUI-drawn toolbar band above the workspace just to host search or global commands.
+
 Avoid:
 
 - dashboard home pages
@@ -31,6 +33,8 @@ Use:
 - only active or recoverable hosts
 - compact two-line service rows
 
+Keep service rows column-stable. Ports, status, telemetry, provider labels, and row actions should use explicit widths or equivalent stable alignment so changing status text does not reflow the row.
+
 Actions must be explicit:
 
 - page-level `停止全部运行` and `清空恢复列表` are separate
@@ -46,6 +50,8 @@ Do not use unclear labels such as `编辑更改`.
 It can show runtime summaries, but must not become a second runtime console.
 
 Use a left host list and right detail pane. Prefer modal/sheet flows for SSH command import and focused edits.
+
+Keep rule rows compact and single-line. Service names, status labels, and action clusters should truncate or align inside stable columns instead of wrapping into taller rows.
 
 ## Logs And Diagnostics
 

@@ -157,6 +157,10 @@ private struct HostRuntimeGroup: View {
         host.rows.filter { $0.state != .recoverable }.count
     }
 
+    private var recoverableCount: Int {
+        host.rows.count - runningCount
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -166,18 +170,22 @@ private struct HostRuntimeGroup: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .frame(width: 16)
+                .frame(width: 16, height: 20)
+                .accessibilityLabel(isCollapsed ? "展开主机" : "折叠主机")
 
                 Image(systemName: "desktopcomputer")
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                    .frame(width: 20)
+                    .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(host.name)
                         .font(.system(size: 13, weight: .semibold))
-                    Text("\(host.endpoint) · 运行中 \(runningCount) 个 / 待恢复 \(host.rows.count - runningCount) 个")
+                        .lineLimit(1)
+                    Text("\(host.endpoint) · 运行中 \(runningCount) 个 / 待恢复 \(recoverableCount) 个")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -185,43 +193,50 @@ private struct HostRuntimeGroup: View {
                 Text(host.providerSummary)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 134, alignment: .trailing)
 
-                Button("恢复全部") {
-                    host.rows
-                        .filter { $0.state == .recoverable }
-                        .forEach { onRecover($0.ruleId) }
-                }
-                .disabled(!host.rows.contains { $0.state == .recoverable })
-                .font(.system(size: 11, weight: .medium))
+                HStack(spacing: 8) {
+                    Button("恢复全部") {
+                        host.rows
+                            .filter { $0.state == .recoverable }
+                            .forEach { onRecover($0.ruleId) }
+                    }
+                    .disabled(!host.rows.contains { $0.state == .recoverable })
 
-                Button("停止运行中", role: .destructive) {
-                    host.rows.compactMap(\.runtimeId).forEach(onStop)
-                }
-                .disabled(!host.rows.contains { $0.runtimeId != nil })
-                .font(.system(size: 11, weight: .medium))
+                    Divider()
+                        .frame(height: 16)
 
-                Button("清空待恢复", role: .destructive) {
-                    host.rows.compactMap(\.recoveryId).forEach(onClear)
+                    Button("停止运行中", role: .destructive) {
+                        host.rows.compactMap(\.runtimeId).forEach(onStop)
+                    }
+                    .disabled(!host.rows.contains { $0.runtimeId != nil })
+
+                    Button("清空待恢复", role: .destructive) {
+                        host.rows.compactMap(\.recoveryId).forEach(onClear)
+                    }
+                    .disabled(!host.rows.contains { $0.recoveryId != nil })
                 }
-                .disabled(!host.rows.contains { $0.recoveryId != nil })
                 .font(.system(size: 11, weight: .medium))
+                .frame(width: 232, alignment: .trailing)
             }
             .buttonStyle(.borderless)
+            .controlSize(.small)
             .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .background(RelayDockColor.controlBackground.opacity(0.72))
+            .padding(.vertical, 6)
+            .background(RelayDockColor.groupHeaderBackground)
 
-                Divider()
+            Divider()
 
             if !isCollapsed {
                 ForEach(host.rows) { row in
                     RuntimeServiceRow(
                         row: row,
-                            onRecover: onRecover,
-                            onRetry: onRetry,
-                            onStop: onStop,
-                            onClear: onClear,
-                            onChangeLocalPort: onChangeLocalPort
+                        onRecover: onRecover,
+                        onRetry: onRetry,
+                        onStop: onStop,
+                        onClear: onClear,
+                        onChangeLocalPort: onChangeLocalPort
                     )
                     Divider()
                 }
@@ -238,43 +253,60 @@ private struct RuntimeServiceRow: View {
     let onClear: (String) -> Void
     let onChangeLocalPort: (RunRecoveryRow) -> Void
 
+    private enum Metrics {
+        static let contentIndent: CGFloat = 30
+        static let portWidth: CGFloat = 112
+        static let statusWidth: CGFloat = 74
+        static let telemetryWidth: CGFloat = 116
+        static let providerWidth: CGFloat = 126
+        static let actionWidth: CGFloat = 172
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 ServiceGlyph(name: row.serviceName)
 
                 Text(row.serviceName)
                     .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
 
                 Text(row.alias)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
                 Spacer()
 
                 Text(row.providerLabel)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 118, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(width: Metrics.providerWidth, alignment: .trailing)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Text(row.portSummary)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .frame(width: 92, alignment: .leading)
-                    .padding(.leading, 30)
+                    .lineLimit(1)
+                    .frame(width: Metrics.portWidth, alignment: .leading)
 
                 Text(row.statusText)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(statusColor)
-                    .frame(width: 46, alignment: .leading)
+                    .lineLimit(1)
+                    .frame(width: Metrics.statusWidth, alignment: .leading)
 
                 if let telemetry = row.telemetry, !telemetry.isEmpty {
                     Text(telemetry)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .frame(width: 108, alignment: .leading)
+                        .lineLimit(1)
+                        .frame(width: Metrics.telemetryWidth, alignment: .leading)
+                } else {
+                    Color.clear
+                        .frame(width: Metrics.telemetryWidth, height: 1)
                 }
 
                 if let error = row.error {
@@ -286,17 +318,22 @@ private struct RuntimeServiceRow: View {
 
                 Spacer()
 
-                ForEach(row.actions, id: \.action) { action in
-                    Button(action.label, role: buttonRole(for: action.action)) {
-                        perform(action.action)
+                HStack(spacing: 8) {
+                    ForEach(row.actions, id: \.action) { action in
+                        Button(action.label, role: buttonRole(for: action.action)) {
+                            perform(action.action)
+                        }
                     }
-                    .font(.system(size: 11, weight: .medium))
                 }
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: Metrics.actionWidth, alignment: .trailing)
             }
+            .padding(.leading, Metrics.contentIndent)
             .buttonStyle(.borderless)
+            .controlSize(.small)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
         .background(RelayDockColor.contentBackground)
     }
 
