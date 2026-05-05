@@ -346,3 +346,36 @@ Implemented the first storage-backed registry editing slice: host and rule sheet
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Batch SSH command import
+
+**Date**: 2026-05-05
+**Task**: Batch SSH command import
+**Branch**: `main`
+
+### Summary
+
+Implemented the first SSH command import slice: Rust parses pasted ssh -L / LocalForward input into structured rule drafts and diagnostics, Swift presents a native batch preview sheet, and imported rules save through the existing storage-backed registry path.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bf98bc1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
