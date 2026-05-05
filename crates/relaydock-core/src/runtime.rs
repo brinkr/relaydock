@@ -19,6 +19,23 @@ pub struct RuntimeInstance {
     pub last_error: Option<RuntimeErrorInfo>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderProcessRecord {
+    pub runtime_instance_id: RuntimeInstanceId,
+    pub provider_kind: ProviderProcessKind,
+    pub pid: u32,
+    pub command_summary: String,
+    pub target_label: String,
+    pub started_at: Option<SystemTime>,
+    pub last_observed_at: SystemTime,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderProcessKind {
+    OpenSsh,
+}
+
 impl RuntimeInstance {
     pub fn new(
         id: RuntimeInstanceId,

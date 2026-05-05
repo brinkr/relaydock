@@ -7,6 +7,7 @@ Primary domain concepts:
 - `Rule` / `Service`
 - `Preset`
 - `RuntimeInstance`
+- `ProviderProcessRecord`
 - `RecoveryItem`
 - `LocalPortBinding`
 - `LocalPortOverride`
@@ -19,6 +20,8 @@ Runtime state must distinguish:
 - currently running instances
 - interrupted but recoverable instances
 - temporary local port overrides
+
+`ProviderProcessRecord` is runtime-owned operational metadata that links one `RuntimeInstance` to a provider pid for the JSON sidecar MVP. It must be treated as observable process state, not user configuration.
 
 `LocalPortOverride` is session-scoped by default and must not silently mutate the saved rule configuration.
 

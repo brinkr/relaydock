@@ -6,12 +6,16 @@ use crate::domain::{
 use crate::ports::{detect_conflict, next_available_port, PortClaim, PortConflict, PortUsage};
 use crate::providers::{
     OpenSshProvider, ProviderDiagnostic, ProviderDiagnosticCode, ProviderError,
-    ProviderProcessLauncher,
+    ProviderProcessController, ProviderProcessLauncher, ProviderProcessStatus,
+    SystemPidProcessController,
 };
-use crate::runtime::RuntimeStatus;
+use crate::runtime::{
+    uptime_seconds_since, ProviderProcessKind, ProviderProcessRecord, RuntimeStatus,
+};
 use crate::ssh_import::{parse_ssh_command, ParseSshCommandCommand, ParseSshCommandResult};
 use crate::storage::{
-    ConfigurationSnapshot, RelayDockStore, RuntimeSnapshot, StorageError, StorageValidationError,
+    ConfigurationSnapshot, RecoveryCollection, RelayDockStore, RuntimeSnapshot, StorageError,
+    StorageValidationError,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -30,6 +34,7 @@ pub enum BridgeCommand {
     SaveRegistryHost(SaveRegistryHostCommand),
     SaveRegistryRule(SaveRegistryRuleCommand),
     StartRule(StartRuleCommand),
+    StopRuntimeInstance(StopRuntimeInstanceCommand),
     StartDemoRule(DemoRuleActionCommand),
     RetryDemoRuntime(DemoRuntimeActionCommand),
     StopDemoRuntime(DemoRuntimeActionCommand),
@@ -99,6 +104,11 @@ pub struct SaveRegistryRuleCommand {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartRuleCommand {
     pub rule_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StopRuntimeInstanceCommand {
+    pub runtime_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -528,6 +538,25 @@ impl BridgeError {
             suggested_recovery: diagnostic.suggested_recovery.clone(),
         }
     }
+
+    pub fn runtime_lifecycle_failed(
+        summary: impl Into<String>,
+        detail: Option<String>,
+        affected_runtime_id: Option<String>,
+    ) -> Self {
+        Self {
+            code: BridgeErrorCode::RuntimeLifecycleFailed,
+            summary: summary.into(),
+            detail,
+            affected_port: None,
+            affected_rule_id: None,
+            affected_runtime_id,
+            affected_recovery_id: None,
+            suggested_recovery: Some(
+                "重新读取运行状态；如果进程已经退出，可清除待恢复项。".to_string(),
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -541,6 +570,7 @@ pub enum BridgeErrorCode {
     UnsupportedProviderTarget,
     InvalidProviderTarget,
     ProviderProcessFailed,
+    RuntimeLifecycleFailed,
 }
 
 pub fn execute_bridge_command(
@@ -580,6 +610,9 @@ pub fn execute_bridge_command(
         BridgeCommand::StartRule(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             start_rule(command)?,
         )),
+        BridgeCommand::StopRuntimeInstance(command) => Ok(
+            BridgeCommandResult::RunRecoverySnapshot(stop_runtime_instance(command)?),
+        ),
         BridgeCommand::StartDemoRule(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             start_demo_rule(command.snapshot, &command.rule_id),
         )),
@@ -625,8 +658,8 @@ pub fn load_run_recovery_snapshot() -> RunRecoverySnapshotResult {
 
 #[cfg(not(test))]
 fn load_run_recovery_snapshot_result() -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
-    let store = open_registry_store()?;
-    load_run_recovery_snapshot_from_store(&store)
+    let mut store = open_registry_store()?;
+    load_run_recovery_snapshot_from_store(&mut store, &SystemPidProcessController)
 }
 
 pub fn load_registry_snapshot() -> Result<RegistrySnapshotResult, Box<BridgeError>> {
@@ -688,6 +721,22 @@ pub fn start_rule(
     {
         let mut store = open_registry_store()?;
         start_rule_to_store(&mut store, command, OpenSshProvider::system())
+    }
+}
+
+pub fn stop_runtime_instance(
+    command: StopRuntimeInstanceCommand,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        stop_runtime_instance_in_store(&mut store, command, SystemPidProcessController)
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        stop_runtime_instance_in_store(&mut store, command, SystemPidProcessController)
     }
 }
 
@@ -1401,20 +1450,40 @@ fn load_registry_snapshot_from_store(
 }
 
 fn load_run_recovery_snapshot_from_store(
-    store: &RelayDockStore,
+    store: &mut RelayDockStore,
+    process_controller: &impl ProviderProcessController,
 ) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
     let configuration = store
         .load_configuration()
         .map_err(storage_error_to_bridge)?
         .unwrap_or_default();
-    let runtime_snapshot = store
+    let mut runtime_snapshot = store
         .load_runtime_snapshot()
         .map_err(storage_error_to_bridge)?
         .unwrap_or_default();
+    let mut recovery_collection = store
+        .load_recovery_collection()
+        .map_err(storage_error_to_bridge)?;
+    let reconciled = reconcile_runtime_processes(
+        &mut runtime_snapshot,
+        &mut recovery_collection,
+        process_controller,
+        SystemTime::now(),
+    )?;
+
+    if reconciled {
+        store
+            .save_runtime_snapshot(&runtime_snapshot)
+            .map_err(storage_error_to_bridge)?;
+        store
+            .save_recovery_collection(&recovery_collection)
+            .map_err(storage_error_to_bridge)?;
+    }
 
     Ok(run_recovery_snapshot_from_store_snapshots(
         &configuration,
         &runtime_snapshot,
+        &recovery_collection,
         None,
     ))
 }
@@ -1511,9 +1580,31 @@ where
         .map_err(storage_error_to_bridge)?
         .unwrap_or_default();
 
+    let process_record = match &observation.status {
+        ProviderProcessStatus::Running { pid: Some(pid) } => Some(ProviderProcessRecord {
+            runtime_instance_id: runtime_instance_id.clone(),
+            provider_kind: ProviderProcessKind::OpenSsh,
+            pid: *pid,
+            command_summary: handle.command().display_command(),
+            target_label: handle.target_label().to_string(),
+            started_at: observation.runtime_instance.started_at,
+            last_observed_at: SystemTime::now(),
+        }),
+        _ => None,
+    };
+
     upsert_runtime_instance(&mut runtime_snapshot, observation.runtime_instance);
+    if let Some(process_record) = process_record {
+        upsert_provider_process_record(&mut runtime_snapshot, process_record);
+    } else {
+        remove_provider_process_record(&mut runtime_snapshot, &runtime_instance_id);
+    }
     store
         .save_runtime_snapshot(&runtime_snapshot)
+        .map_err(storage_error_to_bridge)?;
+
+    let recovery_collection = store
+        .load_recovery_collection()
         .map_err(storage_error_to_bridge)?;
 
     let last_action = observation.diagnostic.map_or_else(
@@ -1543,7 +1634,94 @@ where
     Ok(run_recovery_snapshot_from_store_snapshots(
         &configuration,
         &runtime_snapshot,
+        &recovery_collection,
         last_action,
+    ))
+}
+
+fn stop_runtime_instance_in_store(
+    store: &mut RelayDockStore,
+    command: StopRuntimeInstanceCommand,
+    process_controller: impl ProviderProcessController,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    let configuration = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let runtime_instance_id = RuntimeInstanceId::from(command.runtime_id.trim().to_string());
+
+    if runtime_instance_id.as_str().is_empty() {
+        return Err(Box::new(BridgeError::runtime_lifecycle_failed(
+            "缺少要停止的运行实例",
+            Some("runtime_id must not be empty.".to_string()),
+            None,
+        )));
+    }
+
+    let mut runtime_snapshot = store
+        .load_runtime_snapshot()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let mut recovery_collection = store
+        .load_recovery_collection()
+        .map_err(storage_error_to_bridge)?;
+    let instance_index = runtime_snapshot
+        .instances
+        .iter()
+        .position(|instance| instance.id == runtime_instance_id)
+        .ok_or_else(|| {
+            Box::new(BridgeError::runtime_lifecycle_failed(
+                "未找到要停止的运行实例",
+                Some(format!("runtime_id={runtime_instance_id}")),
+                Some(runtime_instance_id.to_string()),
+            ))
+        })?;
+    let process_record = runtime_snapshot
+        .provider_processes
+        .iter()
+        .find(|process| process.runtime_instance_id == runtime_instance_id)
+        .cloned()
+        .ok_or_else(|| {
+            Box::new(BridgeError::runtime_lifecycle_failed(
+                "运行实例缺少 provider 进程信息",
+                Some(format!(
+                    "runtime_id={runtime_instance_id}; this sidecar cannot stop a runtime without persisted pid metadata."
+                )),
+                Some(runtime_instance_id.to_string()),
+            ))
+        })?;
+
+    process_controller
+        .terminate_pid(process_record.pid)
+        .map_err(provider_error_to_bridge)?;
+
+    let stopped_at = SystemTime::now();
+    let instance = runtime_snapshot.instances.remove(instance_index);
+    runtime_snapshot
+        .local_port_overrides
+        .retain(|override_record| override_record.runtime_instance_id != runtime_instance_id);
+    remove_provider_process_record(&mut runtime_snapshot, &runtime_instance_id);
+    upsert_recovery_item(&mut recovery_collection, instance.stop(stopped_at));
+
+    store
+        .save_runtime_snapshot(&runtime_snapshot)
+        .map_err(storage_error_to_bridge)?;
+    store
+        .save_recovery_collection(&recovery_collection)
+        .map_err(storage_error_to_bridge)?;
+
+    Ok(run_recovery_snapshot_from_store_snapshots(
+        &configuration,
+        &runtime_snapshot,
+        &recovery_collection,
+        Some(RunRecoveryActionStatus {
+            ok: true,
+            message: "已停止运行实例并加入恢复列表".to_string(),
+            affected_rule_id: None,
+            affected_runtime_id: Some(runtime_instance_id.to_string()),
+            affected_recovery_id: None,
+            error: None,
+        }),
     ))
 }
 
@@ -1603,6 +1781,128 @@ fn upsert_runtime_instance(
     }
 }
 
+fn upsert_provider_process_record(
+    runtime_snapshot: &mut RuntimeSnapshot,
+    process_record: ProviderProcessRecord,
+) {
+    if let Some(index) = runtime_snapshot
+        .provider_processes
+        .iter()
+        .position(|existing| existing.runtime_instance_id == process_record.runtime_instance_id)
+    {
+        runtime_snapshot.provider_processes[index] = process_record;
+    } else {
+        runtime_snapshot.provider_processes.push(process_record);
+    }
+}
+
+fn remove_provider_process_record(
+    runtime_snapshot: &mut RuntimeSnapshot,
+    runtime_instance_id: &RuntimeInstanceId,
+) {
+    runtime_snapshot
+        .provider_processes
+        .retain(|process| process.runtime_instance_id != *runtime_instance_id);
+}
+
+fn upsert_recovery_item(
+    recovery_collection: &mut RecoveryCollection,
+    recovery_item: crate::runtime::RecoveryItem,
+) {
+    if let Some(index) = recovery_collection.items.iter().position(|existing| {
+        existing.rule_id == recovery_item.rule_id
+            && existing.provider_target_id == recovery_item.provider_target_id
+    }) {
+        recovery_collection.items[index] = recovery_item;
+    } else {
+        recovery_collection.items.push(recovery_item);
+    }
+}
+
+fn reconcile_runtime_processes(
+    runtime_snapshot: &mut RuntimeSnapshot,
+    recovery_collection: &mut RecoveryCollection,
+    process_controller: &impl ProviderProcessController,
+    observed_at: SystemTime,
+) -> Result<bool, Box<BridgeError>> {
+    let mut changed = false;
+    let process_records = runtime_snapshot.provider_processes.clone();
+
+    for process_record in process_records {
+        let runtime_instance_id = process_record.runtime_instance_id.clone();
+        let Some(instance_index) = runtime_snapshot
+            .instances
+            .iter()
+            .position(|instance| instance.id == runtime_instance_id)
+        else {
+            remove_provider_process_record(runtime_snapshot, &runtime_instance_id);
+            changed = true;
+            continue;
+        };
+
+        let is_running = process_controller
+            .is_running(process_record.pid)
+            .map_err(provider_error_to_bridge)?;
+
+        if is_running {
+            let instance = &mut runtime_snapshot.instances[instance_index];
+            if instance.status != RuntimeStatus::Connected {
+                instance.mark_connected(process_record.started_at.unwrap_or(observed_at));
+                changed = true;
+            }
+
+            if let Some(started_at) = instance.started_at {
+                let uptime_seconds = uptime_seconds_since(started_at, observed_at);
+                if instance.uptime_seconds != uptime_seconds {
+                    instance.uptime_seconds = uptime_seconds;
+                    changed = true;
+                }
+            }
+        } else {
+            let instance = runtime_snapshot.instances.remove(instance_index);
+            runtime_snapshot
+                .local_port_overrides
+                .retain(|override_record| {
+                    override_record.runtime_instance_id != runtime_instance_id
+                });
+            remove_provider_process_record(runtime_snapshot, &runtime_instance_id);
+            upsert_recovery_item(recovery_collection, instance.stop(observed_at));
+            changed = true;
+        }
+    }
+
+    let runtime_ids_with_process = runtime_snapshot
+        .provider_processes
+        .iter()
+        .map(|process| process.runtime_instance_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let runtime_ids_without_process = runtime_snapshot
+        .instances
+        .iter()
+        .filter(|instance| !runtime_ids_with_process.contains(&instance.id))
+        .map(|instance| instance.id.clone())
+        .collect::<Vec<_>>();
+
+    for runtime_instance_id in runtime_ids_without_process {
+        if let Some(instance_index) = runtime_snapshot
+            .instances
+            .iter()
+            .position(|instance| instance.id == runtime_instance_id)
+        {
+            let instance = runtime_snapshot.instances.remove(instance_index);
+            runtime_snapshot
+                .local_port_overrides
+                .retain(|override_record| {
+                    override_record.runtime_instance_id != runtime_instance_id
+                });
+            upsert_recovery_item(recovery_collection, instance.stop(observed_at));
+            changed = true;
+        }
+    }
+
+    Ok(changed)
+}
+
 fn registry_snapshot_from_configuration(
     snapshot: &ConfigurationSnapshot,
     selected_host_id: Option<&str>,
@@ -1632,12 +1932,20 @@ fn registry_snapshot_from_configuration(
 fn run_recovery_snapshot_from_store_snapshots(
     configuration: &ConfigurationSnapshot,
     runtime_snapshot: &RuntimeSnapshot,
+    recovery_collection: &RecoveryCollection,
     last_action: Option<RunRecoveryActionStatus>,
 ) -> RunRecoverySnapshotResult {
     let hosts = configuration
         .hosts
         .iter()
-        .filter_map(|host| run_recovery_host_from_domain(configuration, runtime_snapshot, host))
+        .filter_map(|host| {
+            run_recovery_host_from_domain(
+                configuration,
+                runtime_snapshot,
+                recovery_collection,
+                host,
+            )
+        })
         .collect::<Vec<_>>();
 
     RunRecoverySnapshotResult {
@@ -1651,13 +1959,16 @@ fn run_recovery_snapshot_from_store_snapshots(
 fn run_recovery_host_from_domain(
     configuration: &ConfigurationSnapshot,
     runtime_snapshot: &RuntimeSnapshot,
+    recovery_collection: &RecoveryCollection,
     host: &DomainHost,
 ) -> Option<RunRecoveryHost> {
     let rows = configuration
         .rules
         .iter()
         .filter(|rule| rule.host_id == host.id)
-        .map(|rule| run_recovery_row_from_domain(configuration, runtime_snapshot, rule))
+        .map(|rule| {
+            run_recovery_row_from_domain(configuration, runtime_snapshot, recovery_collection, rule)
+        })
         .collect::<Vec<_>>();
 
     if rows.is_empty() {
@@ -1676,6 +1987,7 @@ fn run_recovery_host_from_domain(
 fn run_recovery_row_from_domain(
     configuration: &ConfigurationSnapshot,
     runtime_snapshot: &RuntimeSnapshot,
+    recovery_collection: &RecoveryCollection,
     rule: &DomainRule,
 ) -> RunRecoveryRow {
     if let Some(instance) = runtime_snapshot
@@ -1684,6 +1996,14 @@ fn run_recovery_row_from_domain(
         .find(|instance| instance.rule_id == rule.id)
     {
         return run_recovery_row_from_runtime(configuration, rule, instance);
+    }
+
+    if let Some(recovery_item) = recovery_collection
+        .items
+        .iter()
+        .find(|item| item.rule_id == rule.id && item.provider_target_id == rule.provider_target_id)
+    {
+        return run_recovery_row_from_recovery_item(configuration, rule, recovery_item);
     }
 
     RunRecoveryRow {
@@ -1707,6 +2027,37 @@ fn run_recovery_row_from_domain(
             code: "configured_not_running".to_string(),
             summary: "已登记，等待手动恢复".to_string(),
             detail: Some("projected from saved registry configuration".to_string()),
+        }),
+        actions: recoverable_actions(),
+    }
+}
+
+fn run_recovery_row_from_recovery_item(
+    configuration: &ConfigurationSnapshot,
+    rule: &DomainRule,
+    recovery_item: &crate::runtime::RecoveryItem,
+) -> RunRecoveryRow {
+    RunRecoveryRow {
+        id: format!("recovery-{}", rule.id),
+        rule_id: rule.id.to_string(),
+        runtime_id: None,
+        recovery_id: Some(format!("recovery-{}", rule.id)),
+        host_id: rule.host_id.to_string(),
+        service_name: rule.name.clone(),
+        alias: rule
+            .alias
+            .as_ref()
+            .map(|alias| alias.hostname.clone())
+            .unwrap_or_default(),
+        provider_label: provider_label(configuration, &recovery_item.provider_target_id),
+        port_summary: recovery_port_summary(recovery_item),
+        state: RunRecoveryRowState::Recoverable,
+        status_text: "待恢复".to_string(),
+        telemetry: None,
+        error: Some(RunRecoveryRowError {
+            code: recovery_status_code(&recovery_item.last_seen_status),
+            summary: "上次运行已断开，等待手动恢复".to_string(),
+            detail: Some("projected from persisted recovery collection".to_string()),
         }),
         actions: recoverable_actions(),
     }
@@ -1801,6 +2152,20 @@ fn runtime_port_summary(instance: &crate::runtime::RuntimeInstance) -> String {
     ports.join(" + ")
 }
 
+fn recovery_port_summary(recovery_item: &crate::runtime::RecoveryItem) -> String {
+    let ports = recovery_item
+        .last_local_bindings
+        .iter()
+        .map(|binding| binding.local_port.to_string())
+        .collect::<Vec<_>>();
+
+    if ports.is_empty() {
+        "-".to_string()
+    } else {
+        ports.join(" + ")
+    }
+}
+
 fn runtime_telemetry(instance: &crate::runtime::RuntimeInstance) -> Option<String> {
     match (&instance.uptime_seconds, &instance.latency_ms) {
         (None, None) if instance.failure_count_today == 0 => None,
@@ -1835,6 +2200,17 @@ fn runtime_error_code(error: &crate::runtime::RuntimeErrorInfo) -> String {
         crate::runtime::RuntimeErrorCode::PortConflict => "local_port_conflict",
         crate::runtime::RuntimeErrorCode::InvalidConfiguration => "invalid_configuration",
         crate::runtime::RuntimeErrorCode::Unknown => "unknown",
+    }
+    .to_string()
+}
+
+fn recovery_status_code(status: &RuntimeStatus) -> String {
+    match status {
+        RuntimeStatus::Connected => "stopped_from_connected",
+        RuntimeStatus::Starting => "stopped_from_starting",
+        RuntimeStatus::Reconnecting => "stopped_from_reconnecting",
+        RuntimeStatus::Error => "stopped_from_error",
+        RuntimeStatus::Configured => "configured_not_running",
     }
     .to_string()
 }
@@ -2407,6 +2783,46 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Debug)]
+    struct MockPidController {
+        running: bool,
+        terminated: Rc<RefCell<Vec<u32>>>,
+    }
+
+    impl MockPidController {
+        fn running() -> Self {
+            Self {
+                running: true,
+                terminated: Rc::new(RefCell::new(Vec::new())),
+            }
+        }
+
+        fn missing() -> Self {
+            Self {
+                running: false,
+                terminated: Rc::new(RefCell::new(Vec::new())),
+            }
+        }
+
+        fn with_terminated(terminated: Rc<RefCell<Vec<u32>>>) -> Self {
+            Self {
+                running: true,
+                terminated,
+            }
+        }
+    }
+
+    impl ProviderProcessController for MockPidController {
+        fn is_running(&self, _pid: u32) -> Result<bool, ProviderError> {
+            Ok(self.running)
+        }
+
+        fn terminate_pid(&self, pid: u32) -> Result<(), ProviderError> {
+            self.terminated.borrow_mut().push(pid);
+            Ok(())
+        }
+    }
+
     fn tcp_claim(port: u16) -> PortClaim {
         PortClaim {
             port,
@@ -2716,10 +3132,11 @@ mod tests {
 
     #[test]
     fn storage_backed_run_recovery_snapshot_returns_empty_state_for_empty_storage() {
-        let store = RelayDockStore::in_memory().expect("store opens");
+        let mut store = RelayDockStore::in_memory().expect("store opens");
 
         let snapshot =
-            load_run_recovery_snapshot_from_store(&store).expect("run/recovery snapshot loads");
+            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
+                .expect("run/recovery snapshot loads");
 
         assert!(snapshot.hosts.is_empty());
         assert_eq!(snapshot.summary.connected_hosts, 0);
@@ -2737,7 +3154,8 @@ mod tests {
             .expect("configuration saves");
 
         let snapshot =
-            load_run_recovery_snapshot_from_store(&store).expect("run/recovery snapshot loads");
+            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
+                .expect("run/recovery snapshot loads");
 
         assert_eq!(snapshot.hosts.len(), 1);
         assert_eq!(snapshot.hosts[0].id, "host-home");
@@ -2854,6 +3272,15 @@ mod tests {
             runtime_snapshot.instances[0].status,
             RuntimeStatus::Connected
         );
+        assert_eq!(runtime_snapshot.provider_processes.len(), 1);
+        assert_eq!(runtime_snapshot.provider_processes[0].pid, 4242);
+        assert_eq!(
+            runtime_snapshot.provider_processes[0].provider_kind,
+            ProviderProcessKind::OpenSsh
+        );
+        assert!(runtime_snapshot.provider_processes[0]
+            .command_summary
+            .contains("ssh -N -T"));
     }
 
     #[test]
@@ -2938,7 +3365,8 @@ mod tests {
         .expect("rule starts");
 
         let snapshot =
-            load_run_recovery_snapshot_from_store(&store).expect("run/recovery snapshot loads");
+            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
+                .expect("run/recovery snapshot loads");
 
         assert_eq!(
             snapshot.hosts[0].rows[0].state,
@@ -2949,6 +3377,203 @@ mod tests {
             Some("runtime-rule-react")
         );
         assert_eq!(snapshot.summary.recoverable_count, 0);
+    }
+
+    #[test]
+    fn load_run_recovery_snapshot_reconciles_missing_pid_into_recovery() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration_with_ssh_rule())
+            .expect("configuration saves");
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: Rc::new(RefCell::new(Vec::new())),
+            next_process: MockProcess {
+                pid: Some(4242),
+                exit: None,
+            },
+        });
+        start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect("rule starts");
+
+        let snapshot =
+            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::missing())
+                .expect("run/recovery snapshot loads");
+
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.state, RunRecoveryRowState::Recoverable);
+        assert_eq!(row.runtime_id, None);
+        assert_eq!(row.recovery_id.as_deref(), Some("recovery-rule-react"));
+        assert_eq!(
+            row.error.as_ref().map(|error| error.code.as_str()),
+            Some("stopped_from_connected")
+        );
+        assert_eq!(snapshot.summary.running_forwards, 0);
+        assert_eq!(snapshot.summary.recoverable_count, 1);
+
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert!(runtime_snapshot.instances.is_empty());
+        assert!(runtime_snapshot.provider_processes.is_empty());
+        assert_eq!(
+            store
+                .load_recovery_collection()
+                .expect("recovery loads")
+                .items
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn stop_runtime_instance_terminates_pid_removes_runtime_and_adds_recovery() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration_with_ssh_rule())
+            .expect("configuration saves");
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: Rc::new(RefCell::new(Vec::new())),
+            next_process: MockProcess {
+                pid: Some(4242),
+                exit: None,
+            },
+        });
+        start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect("rule starts");
+        let terminated = Rc::new(RefCell::new(Vec::new()));
+
+        let snapshot = stop_runtime_instance_in_store(
+            &mut store,
+            StopRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            MockPidController::with_terminated(terminated.clone()),
+        )
+        .expect("runtime stops");
+
+        assert_eq!(*terminated.borrow(), vec![4242]);
+        assert!(snapshot
+            .last_action
+            .as_ref()
+            .is_some_and(|status| status.ok));
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.state, RunRecoveryRowState::Recoverable);
+        assert_eq!(row.runtime_id, None);
+        assert_eq!(row.recovery_id.as_deref(), Some("recovery-rule-react"));
+        assert_eq!(snapshot.summary.running_forwards, 0);
+        assert_eq!(snapshot.summary.recoverable_count, 1);
+
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert!(runtime_snapshot.instances.is_empty());
+        assert!(runtime_snapshot.provider_processes.is_empty());
+        assert_eq!(
+            store
+                .load_recovery_collection()
+                .expect("recovery loads")
+                .items
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn stop_runtime_instance_requires_persisted_pid_metadata() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration_with_ssh_rule())
+            .expect("configuration saves");
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: Rc::new(RefCell::new(Vec::new())),
+            next_process: MockProcess {
+                pid: None,
+                exit: None,
+            },
+        });
+        start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect("rule starts without pid");
+
+        let error = stop_runtime_instance_in_store(
+            &mut store,
+            StopRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            MockPidController::running(),
+        )
+        .expect_err("missing pid metadata must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(
+            error.affected_runtime_id.as_deref(),
+            Some("runtime-rule-react")
+        );
+    }
+
+    #[test]
+    fn load_run_recovery_snapshot_reconciles_runtime_without_pid_metadata_into_recovery() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let mut runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![crate::runtime::LocalPortBinding::new(
+                3000,
+                "127.0.0.1",
+                3000,
+            )],
+        );
+        runtime.mark_connected(UNIX_EPOCH);
+
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![runtime],
+                provider_processes: Vec::new(),
+                local_port_overrides: Vec::new(),
+            })
+            .expect("runtime saves");
+
+        let snapshot =
+            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
+                .expect("run/recovery snapshot loads");
+
+        assert_eq!(
+            snapshot.hosts[0].rows[0].state,
+            RunRecoveryRowState::Recoverable
+        );
+        assert_eq!(snapshot.hosts[0].rows[0].runtime_id, None);
+        assert!(store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists")
+            .instances
+            .is_empty());
     }
 
     #[test]

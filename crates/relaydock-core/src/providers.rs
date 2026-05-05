@@ -192,8 +192,44 @@ pub trait ProviderProcessLauncher {
     fn launch(&self, command: &OpenSshCommand) -> Result<Self::Process, ProviderError>;
 }
 
+pub trait ProviderProcessController {
+    fn is_running(&self, pid: u32) -> Result<bool, ProviderError>;
+    fn terminate_pid(&self, pid: u32) -> Result<(), ProviderError>;
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemProcessLauncher;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemPidProcessController;
+
+impl ProviderProcessController for SystemPidProcessController {
+    fn is_running(&self, pid: u32) -> Result<bool, ProviderError> {
+        let status = Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .map_err(|error| ProviderError::process_status_failed(error.to_string()))?;
+
+        Ok(status.success())
+    }
+
+    fn terminate_pid(&self, pid: u32) -> Result<(), ProviderError> {
+        let status = Command::new("kill")
+            .arg("-TERM")
+            .arg(pid.to_string())
+            .status()
+            .map_err(|error| ProviderError::process_termination_failed(error.to_string()))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ProviderError::process_termination_failed(format!(
+                "kill -TERM {pid} exited with status {status}"
+            )))
+        }
+    }
+}
 
 impl ProviderProcessLauncher for SystemProcessLauncher {
     type Process = SystemProviderProcess;
@@ -544,6 +580,23 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Debug)]
+    struct MockPidController {
+        running: bool,
+        terminated: Rc<RefCell<Vec<u32>>>,
+    }
+
+    impl ProviderProcessController for MockPidController {
+        fn is_running(&self, _pid: u32) -> Result<bool, ProviderError> {
+            Ok(self.running)
+        }
+
+        fn terminate_pid(&self, pid: u32) -> Result<(), ProviderError> {
+            self.terminated.borrow_mut().push(pid);
+            Ok(())
+        }
+    }
+
     fn host() -> Host {
         Host {
             id: HostId::from("host-1"),
@@ -807,5 +860,19 @@ mod tests {
         assert_eq!(runtime.id, RuntimeInstanceId::from("runtime-2"));
         assert_eq!(runtime.status, crate::runtime::RuntimeStatus::Starting);
         assert_eq!(runtime.local_bindings.len(), 2);
+    }
+
+    #[test]
+    fn pid_controller_can_observe_and_terminate_mock_process() {
+        let terminated = Rc::new(RefCell::new(Vec::new()));
+        let controller = MockPidController {
+            running: true,
+            terminated: terminated.clone(),
+        };
+
+        assert!(controller.is_running(4242).expect("pid observes"));
+        controller.terminate_pid(4242).expect("pid terminates");
+
+        assert_eq!(*terminated.borrow(), vec![4242]);
     }
 }

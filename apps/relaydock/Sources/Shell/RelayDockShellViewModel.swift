@@ -112,6 +112,21 @@ final class RelayDockShellViewModel: ObservableObject {
         }
     }
 
+    func stopRuntimeInstance(runtimeId: String) {
+        guard let bridgeExecutor else {
+            loadRunRecoverySnapshot()
+            return
+        }
+
+        isLoadingRunRecovery = true
+        do {
+            applySnapshot(try bridgeExecutor.stopRuntimeInstance(runtimeId: runtimeId))
+        } catch {
+            applyBridgeFailure(error)
+        }
+        isLoadingRunRecovery = false
+    }
+
     func clearDemoRecoveryItem(recoveryId: String) {
         performSnapshotAction { executor, snapshot in
             try executor.clearDemoRecoveryItem(recoveryId: recoveryId, snapshot: snapshot)
@@ -169,7 +184,7 @@ final class RelayDockShellViewModel: ObservableObject {
             return
         }
 
-        stopDemoRuntime(runtimeId: runtimeId)
+        stopRuntimeInstance(runtimeId: runtimeId)
     }
 
     func reloadCurrentSection() {
@@ -196,12 +211,12 @@ final class RelayDockShellViewModel: ObservableObject {
         runRecoveryCollapseCommand = RunRecoveryCollapseCommand(kind: .expandAll)
     }
 
-    func stopAllRunningDemoRuntimes() {
+    func stopAllRunningRuntimes() {
         guard let rows = runRecoverySnapshot?.hosts.flatMap(\.rows) else {
             return
         }
 
-        rows.compactMap(\.runtimeId).forEach(stopDemoRuntime)
+        rows.compactMap(\.runtimeId).forEach(stopRuntimeInstance)
     }
 
     func clearAllDemoRecoveryItems() {

@@ -1,5 +1,5 @@
 use crate::domain::{Host, Preset, Rule};
-use crate::runtime::{LocalPortOverride, RecoveryItem, RuntimeInstance};
+use crate::runtime::{LocalPortOverride, ProviderProcessRecord, RecoveryItem, RuntimeInstance};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -21,6 +21,8 @@ pub struct ConfigurationSnapshot {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     pub instances: Vec<RuntimeInstance>,
+    #[serde(default)]
+    pub provider_processes: Vec<ProviderProcessRecord>,
     pub local_port_overrides: Vec<LocalPortOverride>,
 }
 
@@ -74,6 +76,8 @@ pub enum StorageValidationError {
         rule_id: String,
         provider_target_id: String,
     },
+    #[error("duplicate provider process record for runtime instance `{runtime_instance_id}`")]
+    DuplicateProviderProcess { runtime_instance_id: String },
 }
 
 pub struct RelayDockStore {
@@ -477,6 +481,24 @@ pub fn validate_runtime_snapshot(snapshot: &RuntimeSnapshot) -> Result<(), Stora
         }
     }
 
+    let mut provider_process_ids = BTreeSet::new();
+    for process in &snapshot.provider_processes {
+        if !provider_process_ids.insert(process.runtime_instance_id.as_str().to_string()) {
+            return Err(StorageValidationError::DuplicateProviderProcess {
+                runtime_instance_id: process.runtime_instance_id.to_string(),
+            });
+        }
+
+        if !runtime_ids.contains(process.runtime_instance_id.as_str()) {
+            return Err(StorageValidationError::MissingReference {
+                entity: "provider process",
+                id: process.runtime_instance_id.to_string(),
+                field: "runtime_instance_id",
+                referenced_id: process.runtime_instance_id.to_string(),
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -667,6 +689,7 @@ mod tests {
         (
             RuntimeSnapshot {
                 instances: vec![runtime],
+                provider_processes: Vec::new(),
                 local_port_overrides: vec![override_record],
             },
             configuration(),
@@ -828,6 +851,54 @@ mod tests {
                 entity: "local port override",
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn provider_process_must_reference_an_existing_runtime_instance() {
+        let (mut snapshot, _) = runtime_with_override();
+        snapshot.provider_processes.push(ProviderProcessRecord {
+            runtime_instance_id: RuntimeInstanceId::from("missing"),
+            provider_kind: crate::runtime::ProviderProcessKind::OpenSsh,
+            pid: 4242,
+            command_summary: "ssh -N -T".to_string(),
+            target_label: "SSH · 家庭宽带".to_string(),
+            started_at: None,
+            last_observed_at: UNIX_EPOCH,
+        });
+
+        let error = validate_runtime_snapshot(&snapshot).expect_err("runtime id is missing");
+
+        assert!(matches!(
+            error,
+            StorageValidationError::MissingReference {
+                entity: "provider process",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn duplicate_provider_process_records_are_rejected() {
+        let (mut snapshot, _) = runtime_with_override();
+        snapshot.provider_processes.push(ProviderProcessRecord {
+            runtime_instance_id: RuntimeInstanceId::from("runtime-1"),
+            provider_kind: crate::runtime::ProviderProcessKind::OpenSsh,
+            pid: 4242,
+            command_summary: "ssh -N -T".to_string(),
+            target_label: "SSH · 家庭宽带".to_string(),
+            started_at: None,
+            last_observed_at: UNIX_EPOCH,
+        });
+        snapshot
+            .provider_processes
+            .push(snapshot.provider_processes[0].clone());
+
+        let error = validate_runtime_snapshot(&snapshot).expect_err("duplicate process is invalid");
+
+        assert!(matches!(
+            error,
+            StorageValidationError::DuplicateProviderProcess { .. }
         ));
     }
 

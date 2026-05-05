@@ -1,0 +1,14 @@
+{"file":".trellis/spec/project/index.md","reason":"Project architecture and commit/documentation guardrails."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Bridge command contracts and JSON sidecar lifecycle limitation."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Rust core ownership and quality checklist."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"RuntimeInstance, RecoveryItem, LocalPortOverride, and state transition boundaries."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"OpenSSH process lifecycle, observation, stop, and provider diagnostics."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"RuntimeSnapshot and RecoveryCollection persistence contracts."}
+{"file":".trellis/spec/swift-shell/index.md","reason":"Swift shell ownership and Chinese-first native UI constraints."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Swift must invoke bridge and not own provider lifecycle logic."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Run/recovery action semantics for stop and recovery rows."}
+{"file":"documents/03-domain-model.md","reason":"RuntimeInstance and RecoveryItem domain definitions."}
+{"file":"documents/04-runtime-state-machine.md","reason":"Runtime state and stop/recovery transitions."}
+{"file":"documents/06-provider-and-network-scenarios.md","reason":"Provider abstraction and SSH scope boundaries."}
+{"file":"documents/07-port-management-foundation.md","reason":"LocalPortOverride must remain session-scoped and not mutate saved rules."}
+{"file":".trellis/tasks/05-05-runtime-observe-stop-lifecycle/prd.md","reason":"Task-specific pid-backed lifecycle MVP scope and acceptance criteria."}

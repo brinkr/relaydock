@@ -395,3 +395,62 @@ Correct:
 ```swift
 applySnapshot(try bridgeExecutor.startRule(ruleId: ruleId))
 ```
+
+## PID-Backed Runtime Lifecycle Extension
+
+### 1. Scope / Trigger
+
+- Trigger: `start_rule` can launch a real OpenSSH process, so `运行与恢复` needs the first non-demo stop and reload observation path.
+- Scope: `start_rule` records provider pid metadata, `load_run_recovery_snapshot` reconciles persisted runtime state once per bridge call, and `stop_runtime_instance` stops one runtime by persisted pid.
+- Boundary: this is still a JSON sidecar MVP. It is not a daemon, launch agent, process tree supervisor, reconnect scheduler, or log streamer.
+
+### 2. Signatures
+
+Rust commands:
+
+```json
+{"command":"load_run_recovery_snapshot"}
+{"command":"start_rule","rule_id":"rule-react"}
+{"command":"stop_runtime_instance","runtime_id":"runtime-rule-react"}
+```
+
+Swift entrypoints:
+
+```swift
+loadRunRecoverySnapshot()
+startRule(ruleId:)
+stopRuntimeInstance(runtimeId:)
+RelayDockBridgeExecutor.stopRuntimeInstance(runtimeId:)
+```
+
+### 3. Contracts
+
+- `RuntimeSnapshot` must persist provider process metadata for a started runtime when the provider exposes a pid.
+- Persisted process metadata is operational state only: runtime id, provider kind, pid, command summary, target label, and observation timestamps. It must not contain secrets or imported raw SSH command source of truth.
+- `load_run_recovery_snapshot` must reconcile runtime instances against provider process metadata before returning rows:
+  - pid still observed as running -> keep the runtime row connected and refresh telemetry where available;
+  - pid no longer observed -> remove the runtime instance/process record, upsert a `RecoveryItem`, and return a recoverable row.
+  - runtime instance without provider process metadata -> treat as stale sidecar-era state, remove it, upsert recovery, and return a recoverable row.
+- `stop_runtime_instance` must terminate the persisted provider pid, remove the runtime instance and process metadata, upsert the recovery collection, and return a full `run_recovery_snapshot`.
+- Swift must route row and host/page stop actions through `stop_runtime_instance`; Swift must not submit the demo snapshot stop action for real runtime rows.
+- Recovery rows remain recoverable by `start_rule`; stopping does not delete the saved registry rule.
+
+### 4. Validation & Error Matrix
+
+- Missing or unknown `runtime_id` -> `runtime_lifecycle_failed`.
+- Runtime exists but has no persisted pid metadata -> `runtime_lifecycle_failed`.
+- Pid observation or termination failure -> `provider_process_failed`.
+- Runtime/recovery persistence failure -> `storage_failed`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: start a saved SSH rule, reload after the sidecar exits, observe the pid still running, then stop it and see the row return to `recoverable`.
+- Base: if the pid vanished between app launches, reload moves the row to recovery instead of showing a stale connected runtime.
+- Bad: keeping a Rust `Child` handle in the one-command sidecar and assuming a later bridge invocation can reuse it.
+
+### 6. Tests Required
+
+- Rust unit test that `start_rule` persists provider process metadata when the mock provider exposes a pid.
+- Rust unit test that `load_run_recovery_snapshot` reconciles a missing pid into a recoverable row.
+- Rust unit test that `stop_runtime_instance` uses a mock pid controller, removes runtime/process metadata, and upserts recovery.
+- Swift build must compile bridge models, executor, shell view model, and run/recovery stop wiring.

@@ -120,6 +120,12 @@ final class RelayDockBridgeExecutor {
         return try unwrapRunRecoverySnapshot(result, actionDescription: "start rule")
     }
 
+    func stopRuntimeInstance(runtimeId: String) throws -> RunRecoverySnapshotResult {
+        let command = StopRuntimeInstanceCommand(runtimeId: runtimeId)
+        let result = try execute(.stopRuntimeInstance(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "stop runtime instance")
+    }
+
     func startDemoRule(ruleId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
         let command = DemoRuleActionCommand(ruleId: ruleId, snapshot: snapshot)
         let result = try execute(.startDemoRule(command))

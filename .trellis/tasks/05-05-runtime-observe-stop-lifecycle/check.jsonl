@@ -1,0 +1,13 @@
+{"file":".trellis/spec/project/index.md","reason":"Verify architecture and document-style commit compliance."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Verify stop_runtime_instance command shape and sidecar boundary are documented."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Verify Rust-owned lifecycle and structured diagnostics."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"Verify runtime/recovery transitions are explicit and LocalPortOverride boundaries remain intact."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"Verify OpenSSH observe/stop process behavior and diagnostics."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"Verify runtime and recovery persistence contracts."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Verify Swift only calls bridge and renders returned snapshots."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Verify run/recovery stop/recover actions remain explicit and native."}
+{"file":"documents/03-domain-model.md","reason":"Verify RuntimeInstance and RecoveryItem relationships."}
+{"file":"documents/04-runtime-state-machine.md","reason":"Verify status/action transitions are correct."}
+{"file":"documents/06-provider-and-network-scenarios.md","reason":"Verify provider scope does not drift into unsupported Tailscale lifecycle."}
+{"file":"documents/07-port-management-foundation.md","reason":"Verify temporary overrides remain non-persistent to configuration."}
+{"file":".trellis/tasks/05-05-runtime-observe-stop-lifecycle/prd.md","reason":"Verify acceptance criteria and out-of-scope boundaries."}

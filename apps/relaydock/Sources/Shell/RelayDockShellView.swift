@@ -50,7 +50,7 @@ struct RelayDockShellView: View {
                     viewModel.retryDemoRuntime(runtimeId: runtimeId)
                 },
                 onStop: { runtimeId in
-                    viewModel.stopDemoRuntime(runtimeId: runtimeId)
+                    viewModel.stopRuntimeInstance(runtimeId: runtimeId)
                 },
                 onClear: { recoveryId in
                     viewModel.clearDemoRecoveryItem(recoveryId: recoveryId)
@@ -128,7 +128,7 @@ private extension RelayDockShellView {
         case .collapseAll:
             viewModel.collapseAllRunRecoveryHosts()
         case .stopAll:
-            viewModel.stopAllRunningDemoRuntimes()
+            viewModel.stopAllRunningRuntimes()
         case .clearRecovery:
             viewModel.clearAllDemoRecoveryItems()
         }

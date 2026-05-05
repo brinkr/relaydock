@@ -8,6 +8,7 @@ enum RelayDockBridgeCommand: Encodable {
     case saveRegistryHost(SaveRegistryHostCommand)
     case saveRegistryRule(SaveRegistryRuleCommand)
     case startRule(StartRuleCommand)
+    case stopRuntimeInstance(StopRuntimeInstanceCommand)
     case startDemoRule(DemoRuleActionCommand)
     case retryDemoRuntime(DemoRuntimeActionCommand)
     case stopDemoRuntime(DemoRuntimeActionCommand)
@@ -52,6 +53,9 @@ enum RelayDockBridgeCommand: Encodable {
         case let .startRule(command):
             try container.encode("start_rule", forKey: .command)
             try container.encode(command.ruleId, forKey: .ruleId)
+        case let .stopRuntimeInstance(command):
+            try container.encode("stop_runtime_instance", forKey: .command)
+            try container.encode(command.runtimeId, forKey: .runtimeId)
         case let .startDemoRule(command):
             try container.encode("start_demo_rule", forKey: .command)
             try container.encode(command.ruleId, forKey: .ruleId)
@@ -117,6 +121,10 @@ struct SaveRegistryRuleCommand: Codable, Equatable {
 
 struct StartRuleCommand: Codable, Equatable {
     var ruleId: String
+}
+
+struct StopRuntimeInstanceCommand: Codable, Equatable {
+    var runtimeId: String
 }
 
 struct RegistryHostDraft: Codable, Equatable {
@@ -480,6 +488,7 @@ enum BridgeErrorCode: String, Codable {
     case unsupportedProviderTarget = "unsupported_provider_target"
     case invalidProviderTarget = "invalid_provider_target"
     case providerProcessFailed = "provider_process_failed"
+    case runtimeLifecycleFailed = "runtime_lifecycle_failed"
     case processFailed = "process_failed"
     case responseDecodeFailed = "response_decode_failed"
 }
