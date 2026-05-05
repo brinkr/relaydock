@@ -489,3 +489,36 @@ Verification:
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Refine RelayDock macOS UI density
+
+**Date**: 2026-05-06
+**Task**: Refine RelayDock macOS UI density
+**Branch**: `main`
+
+### Summary
+
+Used gemini-frontend-expert to obtain a focused toolbar cleanup patch, then refined the SwiftUI/AppKit shell density: removed stale SwiftUI toolbar code, tightened run/recovery and registry rows, moved shell colors toward native macOS tokens, updated Swift shell specs, and verified with swift build plus diff checks. Visual QA produced one valid screenshot artifact before later screenshot attempts hit macOS Screen Recording permission.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f3ba40a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

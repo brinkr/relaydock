@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
-- **Last Active**: 2026-05-05
+- **Total Sessions**: 15
+- **Last Active**: 2026-05-06
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~491 | Active |
+| `journal-1.md` | ~524 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-05-06 | Refine RelayDock macOS UI density | `f3ba40a` | `main` |
 | 14 | 2026-05-05 | Add observable stoppable runtime lifecycle | `6f0ccbd` | `main` |
 | 13 | 2026-05-05 | Wire start rule to OpenSSH bridge | `d43791d` | `main` |
 | 12 | 2026-05-05 | Connect run recovery to registry snapshot | `825a14f` | `main` |
