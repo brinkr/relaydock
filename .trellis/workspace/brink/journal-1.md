@@ -379,3 +379,36 @@ Implemented the first SSH command import slice: Rust parses pasted ssh -L / Loca
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Connect run recovery to registry snapshot
+
+**Date**: 2026-05-05
+**Task**: Connect run recovery to registry snapshot
+**Branch**: `main`
+
+### Summary
+
+Projected saved registry hosts and rules into the run/recovery snapshot as recoverable candidates, documented the bridge contract, and verified with Swift build, Rust tests, clippy, fmt, diff check, and sidecar smoke.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `825a14f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
