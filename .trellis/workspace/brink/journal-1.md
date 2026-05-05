@@ -313,3 +313,36 @@ Ran a final acceptance pass for the LocalPort-aligned native RelayDock UI, verif
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Storage-backed registry editing
+
+**Date**: 2026-05-05
+**Task**: Storage-backed registry editing
+**Branch**: `main`
+
+### Summary
+
+Implemented the first storage-backed registry editing slice: host and rule sheets now save through Swift bridge commands into Rust SQLite storage, reload through load_registry_snapshot, and preserve the agreed provider-target boundary without auth_ref or Keychain scope.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `831cf56` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

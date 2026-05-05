@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
+- **Total Sessions**: 10
 - **Last Active**: 2026-05-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~315 | Active |
+| `journal-1.md` | ~348 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-05-05 | Storage-backed registry editing | `831cf56` | `main` |
 | 9 | 2026-05-05 | Close LocalPort-aligned native UI task | `3e0cef7`, `0eeb041`, `8ea9039` | `main` |
 | 8 | 2026-05-05 | Build native diagnostics and preferences workspace | `8ea9039` | `main` |
 | 7 | 2026-05-05 | Wire native UI runtime actions | `0eeb041` | `main` |
