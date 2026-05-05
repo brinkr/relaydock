@@ -1,0 +1,12 @@
+{"file":".trellis/spec/project/index.md","reason":"Verify architecture and document-style commit expectations."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Verify run/recovery snapshot contract and bridge tests remain aligned."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Verify Rust-owned projection, structured errors, and test coverage."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"Verify runtime/recovery distinctions are not collapsed into config state."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"Verify storage-backed behavior and diagnostics."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Verify run/recovery UI actions and density remain native and Chinese-first."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Verify Swift did not gain domain projection or provider state-machine ownership."}
+{"file":"documents/03-domain-model.md","reason":"Verify domain projection follows Host, ProviderTarget, Rule, RecoveryItem, and LocalPortBinding concepts."}
+{"file":"documents/04-runtime-state-machine.md","reason":"Verify only supported runtime states/actions are emitted."}
+{"file":"documents/05-ui-information-architecture.md","reason":"Verify page responsibilities stay separated between run/recovery and registry."}
+{"file":"documents/07-port-management-foundation.md","reason":"Verify local port override remains temporary and non-persistent."}
+{"file":".trellis/tasks/05-05-run-recovery-registry-snapshot/prd.md","reason":"Verify all acceptance criteria and out-of-scope boundaries."}

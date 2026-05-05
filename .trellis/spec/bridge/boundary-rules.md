@@ -66,6 +66,7 @@ RelayDockBridgeExecutor(executableURL: bridgeURL)
   transition itself.
 - `suggested_port` is present only when the requested port conflicts and Rust can suggest another port.
 - `load_run_recovery_snapshot` returns runtime-facing host groups and rows. Rows must use domain states (`connected`, `reconnecting`, `error`, `recoverable`) rather than view names or LocalPort component props.
+- `load_run_recovery_snapshot` must read SQLite-backed resource registry configuration for the first production slice. Until durable runtime/recovery persistence exists, saved rules project as `recoverable` candidates; empty storage returns an empty snapshot rather than seeded demo rows.
 - `load_registry_snapshot` returns configuration-facing hosts, provider targets, presets, and rules. Runtime state may appear only as a compact summary field on rules; Swift owns which host is selected and how details are laid out.
 - Rust core must not import Swift, SwiftUI, or AppKit.
 - Swift bridge models must stay outside SwiftUI views.
@@ -252,4 +253,76 @@ Correct:
 
 ```swift
 try executor.applyDemoLocalPortOverride(ruleId: ruleId, localPort: 15432, snapshot: snapshot)
+```
+
+## Run/Recovery Registry Projection Extension
+
+### 1. Scope / Trigger
+
+- Trigger: `资源登记` can persist hosts and rules, so `运行与恢复` must stop depending on hardcoded demo rows for production bridge loads.
+- Scope: configuration projection only. Rust reads SQLite-backed `ConfigurationSnapshot` and returns runtime-facing host groups and rows.
+- Boundary: this slice does not launch provider processes or persist runtime/recovery collections.
+
+### 2. Signatures
+
+Rust command:
+
+```json
+{"command":"load_run_recovery_snapshot"}
+```
+
+Swift entrypoint:
+
+```swift
+loadRunRecoverySnapshot()
+```
+
+### 3. Contracts
+
+- Production `load_run_recovery_snapshot` must read the same local SQLite store as `load_registry_snapshot`.
+- Empty storage returns `hosts: []`, summary counts of `0`, and the empty-state message; it must not seed demo hosts.
+- Saved rules project as `recoverable` rows until durable runtime and recovery persistence is introduced.
+- Projected rows use stable identifiers derived from the saved `rule_id`:
+  - `id = recovery-{rule_id}`
+  - `runtime_id = null`
+  - `recovery_id = recovery-{rule_id}`
+- Provider label, alias, host endpoint, and port summary must be derived from saved domain configuration.
+- Swift must render the structured snapshot and keep only UI-local state such as expansion and sheet drafts.
+
+### 4. Validation & Error Matrix
+
+- SQLite open/load failure -> `storage_failed`.
+- Invalid saved configuration -> `registry_validation_failed`.
+- Missing provider label on a valid rule -> fallback label `未命名链路`.
+- Host with no rules -> omitted from the run/recovery snapshot.
+
+### 5. Good/Base/Bad Cases
+
+- Good: user imports an SSH command in `资源登记`, saves two rules, reloads `运行与恢复`, and sees two recoverable rows under that host.
+- Base: empty first launch shows `没有运行或待恢复项目`.
+- Bad: production bridge load returns hardcoded `Mac mini (M2) - 家` demo rows when storage is empty.
+
+### 6. Tests Required
+
+- Rust unit test for empty storage returning an empty run/recovery snapshot.
+- Rust unit test for saved registry rules projecting as recoverable rows with alias, provider label, port summary, and recoverable actions.
+- Rust bridge command round-trip must still assert typed `run_recovery_snapshot` output.
+- Swift build must compile unchanged bridge models and run/recovery view model.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```rust
+pub fn load_run_recovery_snapshot() -> RunRecoverySnapshotResult {
+    demo_run_recovery_snapshot()
+}
+```
+
+Correct:
+
+```rust
+let store = open_registry_store()?;
+let configuration = store.load_configuration()?.unwrap_or_default();
+Ok(run_recovery_snapshot_from_configuration(&configuration))
 ```

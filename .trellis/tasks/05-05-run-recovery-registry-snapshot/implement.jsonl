@@ -1,0 +1,13 @@
+{"file":".trellis/spec/project/index.md","reason":"Project architecture, product-doc routing, Chinese-first copy, and commit boundary rules."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Bridge command/result contracts for run/recovery and registry snapshots."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Rust core ownership and pre-development checklist for domain/state/storage behavior."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"Runtime/recovery state distinction and LocalPortOverride boundary."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"SQLite-backed configuration and structured error expectations."}
+{"file":".trellis/spec/swift-shell/index.md","reason":"Swift shell ownership, UI copy, and native shell constraints."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Run/recovery list structure and action semantics."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Prevents Swift from owning runtime projection or provider strategy."}
+{"file":"documents/03-domain-model.md","reason":"Host, ProviderTarget, Rule, RuntimeInstance, RecoveryItem, and LocalPortBinding definitions."}
+{"file":"documents/04-runtime-state-machine.md","reason":"Runtime row states and action semantics for connected/reconnecting/error/recoverable."}
+{"file":"documents/05-ui-information-architecture.md","reason":"Run/recovery and registry workspace responsibilities."}
+{"file":"documents/07-port-management-foundation.md","reason":"Temporary local port override behavior and non-persistent conflict workflow."}
+{"file":".trellis/tasks/05-05-run-recovery-registry-snapshot/prd.md","reason":"Task-specific MVP scope, acceptance criteria, and explicit out-of-scope boundaries."}

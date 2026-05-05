@@ -524,9 +524,21 @@ pub fn execute_bridge_command(
         BridgeCommand::ParseSshCommand(command) => Ok(BridgeCommandResult::SshCommandParse(
             parse_ssh_command(&command.command_text),
         )),
-        BridgeCommand::LoadRunRecoverySnapshot => Ok(BridgeCommandResult::RunRecoverySnapshot(
-            load_run_recovery_snapshot(),
-        )),
+        BridgeCommand::LoadRunRecoverySnapshot => {
+            #[cfg(test)]
+            {
+                Ok(BridgeCommandResult::RunRecoverySnapshot(
+                    load_run_recovery_snapshot(),
+                ))
+            }
+
+            #[cfg(not(test))]
+            {
+                Ok(BridgeCommandResult::RunRecoverySnapshot(
+                    load_run_recovery_snapshot_result()?,
+                ))
+            }
+        }
         BridgeCommand::LoadRegistrySnapshot => Ok(BridgeCommandResult::RegistrySnapshot(
             load_registry_snapshot()?,
         )),
@@ -577,6 +589,12 @@ pub fn check_port_claim(claim: PortClaim, known_usages: Vec<PortUsage>) -> PortC
 
 pub fn load_run_recovery_snapshot() -> RunRecoverySnapshotResult {
     demo_run_recovery_snapshot().recomputed(None)
+}
+
+#[cfg(not(test))]
+fn load_run_recovery_snapshot_result() -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    let store = open_registry_store()?;
+    load_run_recovery_snapshot_from_store(&store)
 }
 
 pub fn load_registry_snapshot() -> Result<RegistrySnapshotResult, Box<BridgeError>> {
@@ -1334,6 +1352,17 @@ fn load_registry_snapshot_from_store(
     Ok(registry_snapshot_from_configuration(&snapshot, None))
 }
 
+fn load_run_recovery_snapshot_from_store(
+    store: &RelayDockStore,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    let snapshot = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+
+    Ok(run_recovery_snapshot_from_configuration(&snapshot))
+}
+
 fn save_registry_host_to_store(
     store: &mut RelayDockStore,
     command: SaveRegistryHostCommand,
@@ -1423,6 +1452,93 @@ fn registry_snapshot_from_configuration(
             .iter()
             .map(|host| registry_host_from_domain(snapshot, host))
             .collect(),
+    }
+}
+
+fn run_recovery_snapshot_from_configuration(
+    snapshot: &ConfigurationSnapshot,
+) -> RunRecoverySnapshotResult {
+    let hosts = snapshot
+        .hosts
+        .iter()
+        .filter_map(|host| run_recovery_host_from_domain(snapshot, host))
+        .collect::<Vec<_>>();
+
+    RunRecoverySnapshotResult {
+        refreshed_at_epoch_seconds: current_epoch_seconds(),
+        summary: RunRecoverySummary::from_hosts(&hosts),
+        hosts,
+        last_action: None,
+    }
+}
+
+fn run_recovery_host_from_domain(
+    snapshot: &ConfigurationSnapshot,
+    host: &DomainHost,
+) -> Option<RunRecoveryHost> {
+    let rows = snapshot
+        .rules
+        .iter()
+        .filter(|rule| rule.host_id == host.id)
+        .map(|rule| run_recovery_row_from_domain(snapshot, rule))
+        .collect::<Vec<_>>();
+
+    if rows.is_empty() {
+        return None;
+    }
+
+    Some(RunRecoveryHost {
+        id: host.id.to_string(),
+        name: host.name.clone(),
+        endpoint: host_endpoint(host),
+        provider_summary: provider_summary_for_host(host),
+        rows,
+    })
+}
+
+fn run_recovery_row_from_domain(
+    snapshot: &ConfigurationSnapshot,
+    rule: &DomainRule,
+) -> RunRecoveryRow {
+    RunRecoveryRow {
+        id: format!("recovery-{}", rule.id),
+        rule_id: rule.id.to_string(),
+        runtime_id: None,
+        recovery_id: Some(format!("recovery-{}", rule.id)),
+        host_id: rule.host_id.to_string(),
+        service_name: rule.name.clone(),
+        alias: rule
+            .alias
+            .as_ref()
+            .map(|alias| alias.hostname.clone())
+            .unwrap_or_default(),
+        provider_label: provider_label(snapshot, &rule.provider_target_id),
+        port_summary: port_summary(rule),
+        state: RunRecoveryRowState::Recoverable,
+        status_text: "待恢复".to_string(),
+        telemetry: None,
+        error: Some(RunRecoveryRowError {
+            code: "configured_not_running".to_string(),
+            summary: "已登记，等待手动恢复".to_string(),
+            detail: Some("projected from saved registry configuration".to_string()),
+        }),
+        actions: recoverable_actions(),
+    }
+}
+
+fn provider_summary_for_host(host: &DomainHost) -> String {
+    let labels = host
+        .provider_targets
+        .iter()
+        .map(|target| target.label.trim())
+        .filter(|label| !label.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    if labels.is_empty() {
+        "未配置 provider".to_string()
+    } else {
+        labels.join(" / ")
     }
 }
 
@@ -2222,6 +2338,71 @@ mod tests {
             .is_some_and(|rows| rows
                 .iter()
                 .any(|row| row["actions"][0]["action"] == "recover")));
+    }
+
+    #[test]
+    fn storage_backed_run_recovery_snapshot_returns_empty_state_for_empty_storage() {
+        let store = RelayDockStore::in_memory().expect("store opens");
+
+        let snapshot =
+            load_run_recovery_snapshot_from_store(&store).expect("run/recovery snapshot loads");
+
+        assert!(snapshot.hosts.is_empty());
+        assert_eq!(snapshot.summary.connected_hosts, 0);
+        assert_eq!(snapshot.summary.running_forwards, 0);
+        assert_eq!(snapshot.summary.recoverable_count, 0);
+        assert_eq!(snapshot.summary.message, "没有运行或待恢复项目");
+        assert!(snapshot.last_action.is_none());
+    }
+
+    #[test]
+    fn storage_backed_run_recovery_snapshot_projects_saved_rules_as_recoverable_rows() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration())
+            .expect("configuration saves");
+
+        let snapshot =
+            load_run_recovery_snapshot_from_store(&store).expect("run/recovery snapshot loads");
+
+        assert_eq!(snapshot.hosts.len(), 1);
+        assert_eq!(snapshot.hosts[0].id, "host-home");
+        assert_eq!(snapshot.hosts[0].endpoint, "admin@192.168.1.5");
+        assert_eq!(
+            snapshot.hosts[0].provider_summary,
+            "SSH · 家 / Tailscale · 家里"
+        );
+        assert_eq!(snapshot.hosts[0].rows.len(), 1);
+
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.rule_id, "rule-react");
+        assert_eq!(row.runtime_id, None);
+        assert_eq!(row.recovery_id.as_deref(), Some("recovery-rule-react"));
+        assert_eq!(row.service_name, "React 前端");
+        assert_eq!(row.alias, "react.home.localhost");
+        assert_eq!(row.provider_label, "Tailscale · 家里");
+        assert_eq!(row.port_summary, "3000 + 3001");
+        assert_eq!(row.state, RunRecoveryRowState::Recoverable);
+        assert_eq!(row.status_text, "待恢复");
+        assert_eq!(
+            row.error.as_ref().map(|error| error.code.as_str()),
+            Some("configured_not_running")
+        );
+        assert_eq!(
+            row.actions
+                .iter()
+                .map(|action| action.action.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                RunRecoveryActionKind::Recover,
+                RunRecoveryActionKind::ChangeLocalPort,
+                RunRecoveryActionKind::Clear,
+            ]
+        );
+        assert_eq!(snapshot.summary.connected_hosts, 0);
+        assert_eq!(snapshot.summary.running_forwards, 0);
+        assert_eq!(snapshot.summary.recoverable_count, 1);
+        assert_eq!(snapshot.summary.message, "存在可恢复的转发");
     }
 
     #[test]

@@ -397,7 +397,7 @@ private struct LocalPortOverrideSheet: View {
                     .frame(width: 140)
             }
 
-            Text("当前 demo 会用临时端口恢复运行，不写回资源登记规则。")
+            Text("当前会用临时端口恢复运行，不写回资源登记规则。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
