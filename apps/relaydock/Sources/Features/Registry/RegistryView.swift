@@ -5,6 +5,7 @@ struct RegistryView: View {
     @Binding var selectedHostId: String?
     let bridgeError: BridgeErrorInfo?
     let onSaveHost: (RegistryHostDraft) throws -> Void
+    let onParseSshCommand: (String) throws -> ParseSshCommandResult
     let onSaveRule: (RegistryRuleDraft) throws -> Void
     let onRecoverRule: (String) -> Void
     let onRetryRule: (String) -> Void
@@ -53,6 +54,7 @@ struct RegistryView: View {
             RegistrySheetView(
                 sheet: sheet,
                 onSaveHost: onSaveHost,
+                onParseSshCommand: onParseSshCommand,
                 onSaveRule: onSaveRule
             ) {
                 activeSheet = nil
@@ -658,6 +660,7 @@ private enum RegistrySheet: Identifiable {
 private struct RegistrySheetView: View {
     let sheet: RegistrySheet
     let onSaveHost: (RegistryHostDraft) throws -> Void
+    let onParseSshCommand: (String) throws -> ParseSshCommandResult
     let onSaveRule: (RegistryRuleDraft) throws -> Void
     let onClose: () -> Void
 
@@ -697,9 +700,399 @@ private struct RegistrySheetView: View {
                 onSave: onSaveRule,
                 onClose: onClose
             )
-        case .newPreset, .importSSH:
+        case let .importSSH(host):
+            RegistrySshImportSheet(
+                title: sheet.title,
+                subtitle: sheet.subtitle,
+                host: host,
+                onParse: onParseSshCommand,
+                onSaveRule: onSaveRule,
+                onClose: onClose
+            )
+        case .newPreset:
             RegistryPlaceholderSheet(sheet: sheet, onClose: onClose)
         }
+    }
+}
+
+private struct RegistrySshImportSheet: View {
+    let title: String
+    let subtitle: String
+    let host: RegistryHost
+    let onParse: (String) throws -> ParseSshCommandResult
+    let onSaveRule: (RegistryRuleDraft) throws -> Void
+    let onClose: () -> Void
+
+    @State private var commandText = ""
+    @State private var providerTargetId: String
+    @State private var parseResult: ParseSshCommandResult?
+    @State private var previewDrafts: [RegistryImportedRuleDraftState] = []
+    @State private var errorMessage: String?
+    @State private var isParsing = false
+    @State private var isSaving = false
+    @State private var lastParsedCommandText = ""
+
+    init(
+        title: String,
+        subtitle: String,
+        host: RegistryHost,
+        onParse: @escaping (String) throws -> ParseSshCommandResult,
+        onSaveRule: @escaping (RegistryRuleDraft) throws -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.host = host
+        self.onParse = onParse
+        self.onSaveRule = onSaveRule
+        self.onClose = onClose
+        _providerTargetId = State(initialValue: host.importDefaultProviderTargetId)
+    }
+
+    private var commandIsStale: Bool {
+        !lastParsedCommandText.isEmpty
+            && normalizedCommandText(commandText) != normalizedCommandText(lastParsedCommandText)
+    }
+
+    private var canSave: Bool {
+        !previewDrafts.isEmpty
+            && !providerTargetId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !commandIsStale
+            && !isSaving
+            && !isParsing
+    }
+
+    private var diagnostics: [SshCommandParseDiagnostic] {
+        parseResult?.diagnostics ?? []
+    }
+
+    private var destinationSummary: String? {
+        guard let hint = parseResult?.destinationHint else {
+            return nil
+        }
+
+        var parts: [String] = []
+        if let user = hint.user, !user.isEmpty {
+            parts.append("\(user)@\(hint.host)")
+        } else {
+            parts.append(hint.host)
+        }
+
+        if let port = hint.port {
+            parts.append("端口 \(port)")
+        }
+
+        return "命令目标：\(parts.joined(separator: " · "))"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sheetHeader
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    RegistryEditorSection("SSH 命令") {
+                        ZStack(alignment: .topLeading) {
+                            TextEditor(text: $commandText)
+                                .font(.system(size: 12, design: .monospaced))
+                                .frame(height: 132)
+                                .padding(4)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
+                                }
+
+                            if commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("粘贴一整行 ssh -L ... 命令")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 12)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+
+                        HStack(alignment: .bottom, spacing: 12) {
+                            Button(isParsing ? "解析中…" : "解析命令") {
+                                parseCommand()
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(isParsing || isSaving)
+
+                            if let destinationSummary {
+                                Text(destinationSummary)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            } else {
+                                Text("支持多个 -L；先解析，再批量微调并保存。")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("导入到链路")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Picker("", selection: $providerTargetId) {
+                                    ForEach(host.providerTargets) { target in
+                                        Text(target.label).tag(target.id)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(width: 220)
+                            }
+                        }
+
+                        if commandIsStale {
+                            RegistryInlineNotice(message: "命令已经修改，请重新解析后再保存预览规则。")
+                        }
+                    }
+
+                    if !diagnostics.isEmpty {
+                        RegistryEditorSection("解析提示") {
+                            RegistryDiagnosticList(diagnostics: diagnostics)
+                        }
+                    }
+
+                    RegistryEditorSection("批量预览") {
+                        HStack {
+                            RegistrySubsectionTitle("已解析 \(previewDrafts.count) 条本地转发")
+                            Spacer()
+                        }
+
+                        if previewDrafts.isEmpty {
+                            RegistrySshImportEmptyState()
+                        } else {
+                            LazyVStack(spacing: 10) {
+                                ForEach($previewDrafts) { $draft in
+                                    RegistryImportedRuleDraftEditor(draft: $draft)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let errorMessage {
+                RegistryInlineError(message: errorMessage)
+            }
+
+            HStack {
+                Spacer()
+                Button("取消", action: onClose)
+                Button(isSaving ? "批量保存中…" : "保存全部预览规则") {
+                    saveAll()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canSave)
+            }
+        }
+        .padding(20)
+        .frame(width: 760, height: 680)
+    }
+
+    private var sheetHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+            Text(subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    private func parseCommand() {
+        errorMessage = nil
+        isParsing = true
+        defer { isParsing = false }
+
+        do {
+            let result = try onParse(commandText)
+            parseResult = result
+            previewDrafts = buildImportedRuleDraftStates(from: result, existingRules: host.rules)
+            providerTargetId = host.preferredImportProviderTargetId(for: result)
+            lastParsedCommandText = commandText
+        } catch {
+            errorMessage = registryEditorMessage(from: error)
+        }
+    }
+
+    private func saveAll() {
+        errorMessage = nil
+
+        guard !commandIsStale else {
+            errorMessage = "命令已经修改，请重新解析后再保存预览规则。"
+            return
+        }
+
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            var savedCount = 0
+            for preview in previewDrafts {
+                let draft = try preview.makeRegistryRuleDraft(
+                    hostId: host.id,
+                    providerTargetId: providerTargetId
+                )
+
+                do {
+                    try onSaveRule(draft)
+                    savedCount += 1
+                } catch {
+                    throw RegistryImportBatchSaveError(
+                        savedCount: savedCount,
+                        underlying: error
+                    )
+                }
+            }
+
+            onClose()
+        } catch let error as RegistryImportBatchSaveError {
+            let detail = registryEditorMessage(from: error.underlying)
+            if error.savedCount > 0 {
+                errorMessage = "前 \(error.savedCount) 条规则已保存，后续保存失败。\n\(detail)"
+            } else {
+                errorMessage = detail
+            }
+        } catch {
+            errorMessage = registryEditorMessage(from: error)
+        }
+    }
+}
+
+private struct RegistryImportedRuleDraftEditor: View {
+    @Binding var draft: RegistryImportedRuleDraftState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("转发 \(draft.forwardIndex)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(draft.localPortText) -> \(draft.remoteHost):\(draft.remotePortText)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                RegistryLabeledField("名称", text: $draft.serviceName)
+                    .frame(maxWidth: .infinity)
+                RegistryLabeledField("别名", text: $draft.alias, prompt: "可选")
+                    .frame(maxWidth: .infinity)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                RegistryLabeledField("远端主机", text: $draft.remoteHost)
+                    .frame(maxWidth: .infinity)
+                RegistryLabeledField("类型", text: $draft.kind, prompt: "可选")
+                    .frame(maxWidth: .infinity)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                RegistryLabeledField("本地端口", text: $draft.localPortText)
+                    .frame(maxWidth: .infinity)
+                RegistryLabeledField("远端端口", text: $draft.remotePortText)
+                    .frame(maxWidth: .infinity)
+            }
+
+            RegistryLabeledField("标签", text: $draft.tagsText, prompt: "用逗号分隔")
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(RelayDockColor.controlBackground.opacity(0.56))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
+        }
+    }
+}
+
+private struct RegistrySshImportEmptyState: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "terminal")
+                .foregroundStyle(.secondary)
+            Text("还没有可保存的导入预览，先解析一条 ssh -L 命令。")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 18)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(RelayDockColor.controlBackground.opacity(0.42))
+        }
+    }
+}
+
+private struct RegistryDiagnosticList: View {
+    let diagnostics: [SshCommandParseDiagnostic]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(diagnostics) { diagnostic in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: diagnostic.severity == .error ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(diagnostic.severity == .error ? Color.red : Color.orange)
+                        Text(diagnostic.summary)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
+
+                    if let detail = diagnostic.detail {
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let forwardSpec = diagnostic.forwardSpec {
+                        Text(forwardSpec)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(
+                            diagnostic.severity == .error
+                                ? Color.red.opacity(0.08)
+                                : Color.orange.opacity(0.08)
+                        )
+                }
+            }
+        }
+    }
+}
+
+private struct RegistryInlineNotice: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: 11))
+            .foregroundStyle(.orange)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.orange.opacity(0.08))
+            }
     }
 }
 
@@ -1260,6 +1653,72 @@ private struct RegistryEditorValidationError: Error {
     let detail: String?
 }
 
+private struct RegistryImportBatchSaveError: Error {
+    let savedCount: Int
+    let underlying: Error
+}
+
+private struct RegistryImportedRuleDraftState: Identifiable, Equatable {
+    let id: String
+    let forwardIndex: Int
+    var serviceName: String
+    var alias: String
+    var remoteHost: String
+    var localPortText: String
+    var remotePortText: String
+    var kind: String
+    var tagsText: String
+
+    init(candidate: SshImportedRuleDraft, serviceName: String, alias: String) {
+        id = "forward-\(candidate.forwardIndex)-\(candidate.localPort)-\(candidate.remoteHost)-\(candidate.remotePort)"
+        forwardIndex = candidate.forwardIndex
+        self.serviceName = serviceName
+        self.alias = alias
+        remoteHost = candidate.remoteHost
+        localPortText = String(candidate.localPort)
+        remotePortText = String(candidate.remotePort)
+        kind = candidate.kind ?? ""
+        tagsText = candidate.tags.joined(separator: ", ")
+    }
+
+    func makeRegistryRuleDraft(
+        hostId: String,
+        providerTargetId: String
+    ) throws -> RegistryRuleDraft {
+        let trimmedName = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw RegistryEditorValidationError(
+                summary: "规则名称不能为空",
+                detail: "请至少为每条导入规则保留一个名称。"
+            )
+        }
+
+        let trimmedRemoteHost = remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRemoteHost.isEmpty else {
+            throw RegistryEditorValidationError(
+                summary: "远端主机不能为空",
+                detail: "请为每条导入规则填写远端主机。"
+            )
+        }
+
+        return RegistryRuleDraft(
+            id: nil,
+            hostId: hostId,
+            serviceName: trimmedName,
+            alias: normalized(alias),
+            providerTargetId: providerTargetId,
+            remoteHost: trimmedRemoteHost,
+            mainLocalPort: try parseRequiredPort(localPortText, label: "本地端口"),
+            mainRemoteHost: trimmedRemoteHost,
+            mainRemotePort: try parseRequiredPort(remotePortText, label: "远端端口"),
+            secondaryPorts: [],
+            kind: normalized(kind),
+            tags: tags(from: tagsText),
+            notes: nil
+        )
+    }
+}
+
 private struct RegistrySectionHeader: View {
     let title: String
 
@@ -1293,9 +1752,29 @@ private protocol RegistryDisplayNameProviding {
     var registryDisplayName: String { get }
 }
 
+private func registryEditorMessage(from error: Error) -> String {
+    if let bridgeError = error as? BridgeErrorInfo {
+        return [bridgeError.summary, bridgeError.detail]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+    }
+
+    if let validationError = error as? RegistryEditorValidationError {
+        return [validationError.summary, validationError.detail]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+    }
+
+    return error.localizedDescription
+}
+
 private func normalized(_ text: String) -> String? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+}
+
+private func normalizedCommandText(_ text: String) -> String {
+    text.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private func tags(from text: String) -> [String] {
@@ -1321,6 +1800,78 @@ private func parseRequiredPort(_ text: String, label: String) throws -> UInt16 {
     }
 
     return value
+}
+
+private func buildImportedRuleDraftStates(
+    from result: ParseSshCommandResult,
+    existingRules: [RegistryRule]
+) -> [RegistryImportedRuleDraftState] {
+    var usedNames = Set(
+        existingRules.map { $0.serviceName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+    )
+    var usedAliases = Set(
+        existingRules
+            .compactMap { normalized($0.alias)?.lowercased() }
+    )
+
+    return result.ruleDrafts.map { candidate in
+        let serviceName = uniquedServiceName(candidate.serviceName, usedNames: &usedNames)
+        let alias = uniquedAlias(candidate.alias, usedAliases: &usedAliases) ?? ""
+        return RegistryImportedRuleDraftState(
+            candidate: candidate,
+            serviceName: serviceName,
+            alias: alias
+        )
+    }
+}
+
+private func uniquedServiceName(_ base: String, usedNames: inout Set<String>) -> String {
+    let trimmedBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
+    let fallback = trimmedBase.isEmpty ? "导入规则" : trimmedBase
+    let normalizedFallback = fallback.lowercased()
+    if !usedNames.contains(normalizedFallback) {
+        usedNames.insert(normalizedFallback)
+        return fallback
+    }
+
+    var index = 2
+    while true {
+        let candidate = "\(fallback) \(index)"
+        let normalizedCandidate = candidate.lowercased()
+        if !usedNames.contains(normalizedCandidate) {
+            usedNames.insert(normalizedCandidate)
+            return candidate
+        }
+        index += 1
+    }
+}
+
+private func uniquedAlias(_ base: String?, usedAliases: inout Set<String>) -> String? {
+    guard let rawBase = base,
+          let base = normalized(rawBase) else {
+        return nil
+    }
+
+    let normalizedBase = base.lowercased()
+    if !usedAliases.contains(normalizedBase) {
+        usedAliases.insert(normalizedBase)
+        return base
+    }
+
+    let separatorIndex = base.firstIndex(of: ".")
+    let stem = separatorIndex.map { String(base[..<$0]) } ?? base
+    let suffix = separatorIndex.map { String(base[$0...]) } ?? ""
+    var index = 2
+
+    while true {
+        let candidate = "\(stem)-\(index)\(suffix)"
+        let normalizedCandidate = candidate.lowercased()
+        if !usedAliases.contains(normalizedCandidate) {
+            usedAliases.insert(normalizedCandidate)
+            return candidate
+        }
+        index += 1
+    }
 }
 
 private extension RegistryHostStatus {
@@ -1426,6 +1977,28 @@ extension RegistryProviderKind: CaseIterable, RegistryDisplayNameProviding {
 }
 
 private extension RegistryHost {
+    var importDefaultProviderTargetId: String {
+        providerTargets.first(where: { $0.kind == .ssh })?.id
+            ?? providerTargets.first?.id
+            ?? ""
+    }
+
+    func preferredImportProviderTargetId(for result: ParseSshCommandResult) -> String {
+        guard let hint = result.providerTargetHint else {
+            return importDefaultProviderTargetId
+        }
+
+        if let matchingTarget = providerTargets.first(where: {
+            $0.kind == .ssh
+                && $0.targetAddress.caseInsensitiveCompare(hint.targetAddress) == .orderedSame
+                && (($0.targetPort ?? 22) == (hint.targetPort ?? 22))
+        }) {
+            return matchingTarget.id
+        }
+
+        return importDefaultProviderTargetId
+    }
+
     var hostDraft: RegistryHostDraft {
         RegistryHostDraft(
             id: id,

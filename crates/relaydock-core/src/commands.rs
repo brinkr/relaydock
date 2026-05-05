@@ -4,6 +4,7 @@ use crate::domain::{
     ProviderTargetType, Rule as DomainRule, RuleId,
 };
 use crate::ports::{detect_conflict, next_available_port, PortClaim, PortConflict, PortUsage};
+use crate::ssh_import::{parse_ssh_command, ParseSshCommandCommand, ParseSshCommandResult};
 use crate::storage::{ConfigurationSnapshot, RelayDockStore, StorageError, StorageValidationError};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,6 +17,7 @@ const DEMO_REFRESHED_AT_EPOCH_SECONDS: u64 = 1_777_777_777;
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum BridgeCommand {
     CheckPortClaim(CheckPortClaimCommand),
+    ParseSshCommand(ParseSshCommandCommand),
     LoadRunRecoverySnapshot,
     LoadRegistrySnapshot,
     SaveRegistryHost(SaveRegistryHostCommand),
@@ -38,6 +40,7 @@ pub struct CheckPortClaimCommand {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum BridgeCommandResult {
     PortClaimCheck(PortClaimCheckResult),
+    SshCommandParse(ParseSshCommandResult),
     RunRecoverySnapshot(RunRecoverySnapshotResult),
     RegistrySnapshot(RegistrySnapshotResult),
 }
@@ -517,6 +520,9 @@ pub fn execute_bridge_command(
     match command {
         BridgeCommand::CheckPortClaim(command) => Ok(BridgeCommandResult::PortClaimCheck(
             check_port_claim(command.claim, command.known_usages),
+        )),
+        BridgeCommand::ParseSshCommand(command) => Ok(BridgeCommandResult::SshCommandParse(
+            parse_ssh_command(&command.command_text),
         )),
         BridgeCommand::LoadRunRecoverySnapshot => Ok(BridgeCommandResult::RunRecoverySnapshot(
             load_run_recovery_snapshot(),
@@ -2064,6 +2070,24 @@ mod tests {
         assert_eq!(json["result"]["type"], "port_claim_check");
         assert_eq!(json["result"]["available"], false);
         assert_eq!(json["result"]["suggested_port"], 8089);
+    }
+
+    #[test]
+    fn parse_ssh_command_bridge_command_returns_structured_parse_result() {
+        let command: BridgeCommand = serde_json::from_value(json!({
+            "command": "parse_ssh_command",
+            "command_text": "ssh -L 3000:127.0.0.1:3000 admin@sanjose"
+        }))
+        .expect("command JSON decodes");
+
+        let response =
+            BridgeResponse::success(execute_bridge_command(command).expect("command executes"));
+        let json = serde_json::to_value(response).expect("response serializes");
+
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["result"]["type"], "ssh_command_parse");
+        assert_eq!(json["result"]["rule_drafts"][0]["local_port"], 3000);
+        assert_eq!(json["result"]["destination_hint"]["host"], "sanjose");
     }
 
     #[test]

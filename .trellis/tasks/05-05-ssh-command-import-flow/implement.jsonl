@@ -1,0 +1,12 @@
+{"file":".trellis/spec/project/index.md","reason":"Project constraints: SwiftUI + AppKit shell + Rust core, Chinese-first UI, LocalPort reference boundary."}
+{"file":".trellis/spec/bridge/index.md","reason":"Bridge commands must be coarse-grained and structured."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Existing registry persistence contract and parse_ssh_command boundary shape."}
+{"file":".trellis/spec/bridge/error-mapping.md","reason":"Parser and bridge errors must stay structured and user-visible."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Rust core owns SSH parsing and domain validation."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"Imported SSH command strings must become structured rule mappings, not runtime source strings."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"Imported rules must persist through existing configuration storage without credentials."}
+{"file":".trellis/spec/swift-shell/index.md","reason":"Registry import sheet must stay native and Chinese-first."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Resource registry uses focused sheet flows, not page-level editors."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Swift must not own SSH command parsing or domain state machines."}
+{"file":"documents/08-import-export-and-ai.md","reason":"Product requirements for SSH command import and multi -L handling."}
+{"file":"documents/06-provider-and-network-scenarios.md","reason":"Provider target interpretation and SSH/Tailscale boundaries."}

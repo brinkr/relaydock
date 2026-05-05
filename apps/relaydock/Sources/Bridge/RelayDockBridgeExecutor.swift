@@ -61,6 +61,25 @@ final class RelayDockBridgeExecutor {
         return portClaimResult
     }
 
+    func parseSshCommand(_ commandText: String) throws -> ParseSshCommandResult {
+        let result = try execute(.parseSshCommand(ParseSshCommandCommand(commandText: commandText)))
+
+        guard case let .sshCommandParse(parseResult) = result else {
+            throw BridgeErrorInfo(
+                code: .responseDecodeFailed,
+                summary: "Bridge returned an unexpected result type",
+                detail: "Expected ssh_command_parse for parse SSH command.",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: nil
+            )
+        }
+
+        return parseResult
+    }
+
     func loadRunRecoverySnapshot() throws -> RunRecoverySnapshotResult {
         let result = try execute(.loadRunRecoverySnapshot)
         return try unwrapRunRecoverySnapshot(result, actionDescription: "load run/recovery snapshot")

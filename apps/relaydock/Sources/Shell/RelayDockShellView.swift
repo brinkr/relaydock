@@ -70,6 +70,9 @@ struct RelayDockShellView: View {
                 onSaveHost: { draft in
                     try viewModel.saveRegistryHost(draft)
                 },
+                onParseSshCommand: { commandText in
+                    try viewModel.parseSshCommand(commandText)
+                },
                 onSaveRule: { draft in
                     try viewModel.saveRegistryRule(draft)
                 },

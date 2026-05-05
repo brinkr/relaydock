@@ -255,6 +255,23 @@ final class RelayDockShellViewModel: ObservableObject {
         applyRegistrySnapshot(try bridgeExecutor.saveRegistryHost(host))
     }
 
+    func parseSshCommand(_ commandText: String) throws -> ParseSshCommandResult {
+        guard let bridgeExecutor else {
+            throw BridgeErrorInfo(
+                code: .processFailed,
+                summary: "未找到 RelayDock bridge sidecar",
+                detail: "Expected target/debug/relaydock-bridge in the development workspace.",
+                affectedPort: nil,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: "Run cargo build -p relaydock-core --bin relaydock-bridge."
+            )
+        }
+
+        return try bridgeExecutor.parseSshCommand(commandText)
+    }
+
     func saveRegistryRule(_ rule: RegistryRuleDraft) throws {
         guard let bridgeExecutor else {
             throw BridgeErrorInfo(

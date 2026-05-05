@@ -1,0 +1,12 @@
+{"file":".trellis/spec/project/index.md","reason":"Verify architecture, commit, and product constraints."}
+{"file":".trellis/spec/bridge/index.md","reason":"Verify new command/result/error contract stays coarse-grained."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Verify parse/import contract fits existing registry persistence boundary."}
+{"file":".trellis/spec/bridge/error-mapping.md","reason":"Verify errors are structured and user-visible."}
+{"file":".trellis/spec/rust-core/index.md","reason":"Verify parser and storage behavior belong in Rust core."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"Verify imported raw ssh strings are not runtime source of truth."}
+{"file":".trellis/spec/rust-core/storage-and-diagnostics.md","reason":"Verify imported rules persist without credential material."}
+{"file":".trellis/spec/swift-shell/index.md","reason":"Verify native UI and Chinese-first copy."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Verify sheet flow and registry layout remain consistent."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Verify Swift does not parse SSH commands."}
+{"file":"documents/08-import-export-and-ai.md","reason":"Verify first import slice handles one-line command and multiple -L forwards."}
+{"file":"documents/06-provider-and-network-scenarios.md","reason":"Verify provider target handling remains narrow and non-secret."}

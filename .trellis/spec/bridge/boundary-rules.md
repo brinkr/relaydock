@@ -125,14 +125,16 @@ Rust commands:
 
 ```json
 {"command":"load_registry_snapshot"}
-{"command":"save_registry_host","host":{"id":"host-mac-studio","name":"Mac Studio - Office","address":"10.0.4.5","port":22,"user":"admin","tags":["office"],"os_hint":"macos","status":"unknown","provider_targets":[{"id":"target-ssh-office","host_id":"host-mac-studio","provider_kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
-{"command":"save_registry_rule","rule":{"id":"rule-relay-admin","host_id":"host-mac-studio","provider_target_id":"target-ssh-office","name":"Relay Admin","alias":"admin.office.localhost","kind":"web","tags":["admin","office"],"remote_host":"127.0.0.1","main_port":{"local_port":3000,"remote_port":3000},"secondary_ports":[],"notes":null}}
+{"command":"parse_ssh_command","command_text":"ssh -L 3000:127.0.0.1:3000 admin@sanjose"}
+{"command":"save_registry_host","host":{"id":"host-mac-studio","name":"Mac Studio - Office","address":"10.0.4.5","port":22,"user":"admin","tags":["office"],"os_hint":"macos","status":"unknown","provider_targets":[{"id":"target-ssh-office","kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
+{"command":"save_registry_rule","rule":{"id":"rule-relay-admin","host_id":"host-mac-studio","provider_target_id":"target-ssh-office","service_name":"Relay Admin","alias":"admin.office.localhost","kind":"web","tags":["admin","office"],"remote_host":"127.0.0.1","main_local_port":3000,"main_remote_host":"127.0.0.1","main_remote_port":3000,"secondary_ports":[],"notes":null}}
 ```
 
 Swift entrypoints:
 
 ```swift
 loadRegistrySnapshot()
+parseSshCommand(_ commandText: String)
 saveRegistryHost(_ host: RegistryHostDraft)
 saveRegistryRule(_ rule: RegistryRuleDraft)
 ```
@@ -140,16 +142,20 @@ saveRegistryRule(_ rule: RegistryRuleDraft)
 ### 3. Contracts
 
 - `load_registry_snapshot` must read the SQLite-backed `ConfigurationSnapshot` and project it into `RegistrySnapshotResult`.
+- `parse_ssh_command` must parse pasted OpenSSH local-forward input in Rust and return structured hints, rule drafts, and diagnostics. Swift must not parse SSH command syntax itself.
+- `parse_ssh_command` may accept raw command text as transient command input only; the raw pasted string must not be saved as runtime/provider source of truth.
+- `parse_ssh_command` should support common `-L` forms plus OpenSSH `LocalForward` provided through `-o`.
 - Empty storage returns an empty `RegistrySnapshotResult`; Swift must show the empty state until the user creates the first host through `新建资源分组`.
 - `save_registry_host` may create the first saved configuration snapshot; it must not depend on a seeded demo registry.
 - `save_registry_rule` must update or append a rule, then return the full next `registry_snapshot` for immediate UI refresh.
-- Provider-target drafts in this slice are intentionally narrow: `provider_kind`, `label`, `target_address`, and optional `target_port`. Do not send `auth_ref`, secrets, or Keychain material through this form contract.
+- Provider-target drafts in this slice are intentionally narrow: `kind`, `label`, `target_address`, and optional `target_port`. Do not send `auth_ref`, secrets, or Keychain material through this form contract.
 - Production bridge storage path defaults to `~/Library/Application Support/RelayDock/relaydock.sqlite3`.
 - `RELAYDOCK_STORE_PATH` may override the SQLite path for QA or tooling.
 
 ### 4. Validation & Error Matrix
 
 - Missing host/rule required fields -> `registry_validation_failed`.
+- Empty or malformed SSH command -> success result with `ssh_command_parse` diagnostics, not a storage mutation.
 - Rule references a host/provider-target mismatch -> `registry_validation_failed`.
 - Provider-target draft includes unsupported credential-like fields -> `registry_validation_failed`.
 - SQLite open/create/save/load failure -> `storage_failed`.
@@ -164,6 +170,7 @@ saveRegistryRule(_ rule: RegistryRuleDraft)
 ### 6. Tests Required
 
 - Rust unit test that `load_registry_snapshot` returns empty state for empty storage.
+- Rust unit test that `parse_ssh_command` returns one rule draft per supported `-L` / `LocalForward` and reports malformed forwards as diagnostics.
 - Rust unit test that `save_registry_host` bootstraps the first saved configuration and returns the new selected host.
 - Rust unit test that `save_registry_rule` updates stored configuration and projects the new rule summary.
 - Rust unit test that invalid host/rule drafts map to `registry_validation_failed`.
@@ -180,7 +187,7 @@ Wrong:
 Correct:
 
 ```json
-{"command":"save_registry_host","host":{"name":"Mac Studio - Office","provider_targets":[{"provider_kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
+{"command":"save_registry_host","host":{"name":"Mac Studio - Office","provider_targets":[{"kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
 ```
 
 ## Demo Runtime Action Extension

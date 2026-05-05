@@ -2,6 +2,7 @@ import Foundation
 
 enum RelayDockBridgeCommand: Encodable {
     case checkPortClaim(CheckPortClaimCommand)
+    case parseSshCommand(ParseSshCommandCommand)
     case loadRunRecoverySnapshot
     case loadRegistrySnapshot
     case saveRegistryHost(SaveRegistryHostCommand)
@@ -15,6 +16,7 @@ enum RelayDockBridgeCommand: Encodable {
     private enum CodingKeys: String, CodingKey {
         case command
         case claim
+        case commandText = "command_text"
         case knownUsages = "known_usages"
         case host
         case rule
@@ -33,6 +35,9 @@ enum RelayDockBridgeCommand: Encodable {
             try container.encode("check_port_claim", forKey: .command)
             try container.encode(command.claim, forKey: .claim)
             try container.encode(command.knownUsages, forKey: .knownUsages)
+        case let .parseSshCommand(command):
+            try container.encode("parse_ssh_command", forKey: .command)
+            try container.encode(command.commandText, forKey: .commandText)
         case .loadRunRecoverySnapshot:
             try container.encode("load_run_recovery_snapshot", forKey: .command)
         case .loadRegistrySnapshot:
@@ -71,6 +76,10 @@ enum RelayDockBridgeCommand: Encodable {
 struct CheckPortClaimCommand: Codable, Equatable {
     var claim: BridgePortClaim
     var knownUsages: [BridgePortUsage]
+}
+
+struct ParseSshCommandCommand: Codable, Equatable {
+    var commandText: String
 }
 
 struct DemoRuleActionCommand: Codable, Equatable {
@@ -153,6 +162,7 @@ struct BridgeResponse: Decodable, Equatable {
 
 enum BridgeCommandResult: Decodable, Equatable {
     case portClaimCheck(PortClaimCheckResult)
+    case sshCommandParse(ParseSshCommandResult)
     case runRecoverySnapshot(RunRecoverySnapshotResult)
     case registrySnapshot(RegistrySnapshotResult)
 
@@ -162,6 +172,7 @@ enum BridgeCommandResult: Decodable, Equatable {
 
     private enum ResultType: String, Decodable {
         case portClaimCheck = "port_claim_check"
+        case sshCommandParse = "ssh_command_parse"
         case runRecoverySnapshot = "run_recovery_snapshot"
         case registrySnapshot = "registry_snapshot"
     }
@@ -172,6 +183,8 @@ enum BridgeCommandResult: Decodable, Equatable {
         switch try container.decode(ResultType.self, forKey: .type) {
         case .portClaimCheck:
             self = .portClaimCheck(try PortClaimCheckResult(from: decoder))
+        case .sshCommandParse:
+            self = .sshCommandParse(try ParseSshCommandResult(from: decoder))
         case .runRecoverySnapshot:
             self = .runRecoverySnapshot(try RunRecoverySnapshotResult(from: decoder))
         case .registrySnapshot:
@@ -185,6 +198,52 @@ struct PortClaimCheckResult: Codable, Equatable {
     var available: Bool
     var conflict: BridgePortConflict?
     var suggestedPort: UInt16?
+}
+
+struct ParseSshCommandResult: Codable, Equatable {
+    var destinationHint: SshDestinationHint?
+    var providerTargetHint: SshProviderTargetHint?
+    var ruleDrafts: [SshImportedRuleDraft]
+    var diagnostics: [SshCommandParseDiagnostic]
+}
+
+struct SshDestinationHint: Codable, Equatable {
+    var host: String
+    var user: String?
+    var port: UInt16?
+}
+
+struct SshProviderTargetHint: Codable, Equatable {
+    var targetAddress: String
+    var targetPort: UInt16?
+    var user: String?
+}
+
+struct SshImportedRuleDraft: Codable, Equatable {
+    var forwardIndex: Int
+    var serviceName: String
+    var alias: String?
+    var remoteHost: String
+    var localPort: UInt16
+    var remotePort: UInt16
+    var kind: String?
+    var tags: [String]
+}
+
+struct SshCommandParseDiagnostic: Codable, Equatable, Identifiable {
+    var severity: SshCommandParseDiagnosticSeverity
+    var summary: String
+    var detail: String?
+    var forwardSpec: String?
+
+    var id: String {
+        [severity.rawValue, summary, detail ?? "", forwardSpec ?? ""].joined(separator: "::")
+    }
+}
+
+enum SshCommandParseDiagnosticSeverity: String, Codable {
+    case warning
+    case error
 }
 
 struct RunRecoverySnapshotResult: Codable, Equatable {
