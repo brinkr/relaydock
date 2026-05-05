@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
+- **Total Sessions**: 13
 - **Last Active**: 2026-05-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~414 | Active |
+| `journal-1.md` | ~447 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-05-05 | Wire start rule to OpenSSH bridge | `d43791d` | `main` |
 | 12 | 2026-05-05 | Connect run recovery to registry snapshot | `825a14f` | `main` |
 | 11 | 2026-05-05 | Batch SSH command import | `bf98bc1` | `main` |
 | 10 | 2026-05-05 | Storage-backed registry editing | `831cf56` | `main` |

@@ -412,3 +412,36 @@ Projected saved registry hosts and rules into the run/recovery snapshot as recov
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Wire start rule to OpenSSH bridge
+
+**Date**: 2026-05-05
+**Task**: Wire start rule to OpenSSH bridge
+**Branch**: `main`
+
+### Summary
+
+Added start_rule bridge command, routed Swift recover through it, persisted observed runtime snapshots, documented the sidecar lifecycle boundary, and verified with Swift build, Rust tests, clippy, fmt, diff check, and start_rule sidecar smoke.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d43791d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
