@@ -445,3 +445,47 @@ Added start_rule bridge command, routed Swift recover through it, persisted obse
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Add observable stoppable runtime lifecycle
+
+**Date**: 2026-05-05
+**Task**: Add observable stoppable runtime lifecycle
+**Branch**: `main`
+
+### Summary
+
+Added the pid-backed runtime lifecycle MVP: start_rule now persists provider process metadata, load_run_recovery_snapshot reconciles stale or missing provider pids into recovery, stop_runtime_instance terminates the recorded OpenSSH pid, and Swift run/recovery stop actions now call the real bridge path.
+
+### Main Changes
+
+- Added `ProviderProcessRecord` and runtime snapshot validation for provider process metadata.
+- Added `ProviderProcessController` plus mock-covered pid observation and termination.
+- Added `stop_runtime_instance` bridge command and Swift executor/view model wiring.
+- Updated bridge and Rust-core specs to document the sidecar MVP boundary and non-daemon tradeoff.
+
+Verification:
+- `cargo fmt --check`
+- `cargo test -p relaydock-core` (62 tests)
+- `cargo clippy --all-targets -- -D warnings`
+- `swift build`
+- `git diff --check`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6f0ccbd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
