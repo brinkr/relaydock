@@ -522,3 +522,36 @@ Used gemini-frontend-expert to obtain a focused toolbar cleanup patch, then refi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Continue Gemini UI refinement
+
+**Date**: 2026-05-06
+**Task**: Continue Gemini UI refinement
+**Branch**: `main`
+
+### Summary
+
+Completed the remaining reasonable Gemini UI feedback: tightened the main source-list sidebar, compacted Logs/Diagnostics and Preferences without adding fake provider logs or persistence, removed remaining opacity-heavy shell surfaces in touched views, and made visual QA refuse full-screen fallback success while reporting app/pid/window context. Verified with swift build, git diff checks, shell syntax check, and successful visual QA screenshot.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `014504a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
