@@ -145,8 +145,8 @@ private struct ShellTopBar: View {
     var body: some View {
         HStack(spacing: 14) {
             HStack(spacing: 8) {
-                Image(systemName: section.systemImage)
-                    .font(.system(size: 13, weight: .medium))
+                Image(systemName: section.topBarSystemImage)
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
 
@@ -155,7 +155,7 @@ private struct ShellTopBar: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
             }
-            .frame(minWidth: 138, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
 
             Spacer(minLength: 16)
 
@@ -164,7 +164,7 @@ private struct ShellTopBar: View {
                     .frame(width: 300)
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 switch section {
                 case .runAndRecovery:
                     ToolbarTextButton("重新检查", systemImage: "arrow.clockwise", action: onReload)
@@ -254,7 +254,7 @@ private struct ToolbarTextButton: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
             }
-            .padding(.horizontal, prominence == .primary ? 10 : 8)
+            .padding(.horizontal, prominence == .primary ? 10 : 7)
             .frame(height: 26)
             .foregroundStyle(foregroundStyle)
             .background(backgroundStyle)

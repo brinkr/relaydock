@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell routing and UI spec entrypoint"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Prototype shell and run/recovery visual constraints"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Visual QA and native shell quality requirements"}
+{"file": ".trellis/tasks/05-06-correct-prototype-ui-style-drift/research/localport-style-audit.md", "reason": "Measured LocalPort source style audit for review"}

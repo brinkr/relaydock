@@ -6,23 +6,26 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer()
-                .frame(height: 58)
+                .frame(height: 52)
 
-            SidebarGroupTitle("监控与工作流")
+            VStack(alignment: .leading, spacing: 4) {
+                SidebarGroupTitle("监控与工作流")
 
-            SidebarButton(section: .runAndRecovery, selection: $selection)
-            SidebarButton(section: .registry, selection: $selection)
-            SidebarButton(section: .logsAndDiagnostics, selection: $selection)
+                SidebarButton(section: .runAndRecovery, selection: $selection)
+                SidebarButton(section: .registry, selection: $selection)
+                SidebarButton(section: .logsAndDiagnostics, selection: $selection)
 
-            SidebarGroupTitle("系统")
-                .padding(.top, 14)
+                SidebarGroupTitle("系统")
+                    .padding(.top, 18)
 
-            SidebarButton(section: .preferences, selection: $selection)
+                SidebarButton(section: .preferences, selection: $selection)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .frame(width: 212)
+        .frame(width: 220)
         .background(RelayDockColor.sidebarBackground)
         .overlay(alignment: .trailing) {
             Divider()
@@ -43,8 +46,8 @@ private struct SidebarGroupTitle: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.bottom, 5)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 2)
     }
 }
 
@@ -60,9 +63,9 @@ private struct SidebarButton: View {
         Button {
             selection = section
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: section.systemImage)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+            HStack(spacing: 10) {
+                Image(systemName: section.sidebarSystemImage)
+                    .font(.system(size: 16, weight: isSelected ? .medium : .regular))
                     .foregroundStyle(isSelected ? RelayDockColor.sidebarAccent : Color.secondary.opacity(0.78))
                     .frame(width: 18, alignment: .center)
 
@@ -73,19 +76,12 @@ private struct SidebarButton: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 24)
-            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .padding(.horizontal, 10)
             .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(isSelected ? RelayDockColor.sidebarSelection : Color.clear)
-            }
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(RelayDockColor.sidebarAccent)
-                        .frame(width: 2.5, height: 16)
-                }
             }
         }
         .buttonStyle(.plain)

@@ -10,6 +10,7 @@
 - Provide accessible labels for icon-only controls.
 - Avoid color-only status meaning; include text or stable icons.
 - After UI shell changes, run `scripts/visual-qa/relaydock-window-snapshot.sh` and inspect the screenshot before completing the task.
+- For prototype-style fixes, inspect a current LocalPort source file or rendered screenshot alongside RelayDock. Do not judge alignment from RelayDock's screenshot alone.
 - Use AppKit for the window chrome and traffic-light behavior. Do not use a cross-window AppKit `NSToolbar` when it causes the top bar to span the sidebar or use oversized capsule controls.
 - Visual QA must inspect the actual top region of the screenshot: the sidebar should begin at the window top with traffic lights, the content-pane top bar should start to the right of the sidebar, and the content must not start below an awkward blank strip.
 - For native screenshot automation, launch RelayDock through a temporary `.app` bundle instead of the raw SwiftPM binary so macOS activation, Accessibility, Screen Recording, and Computer Use can identify the app consistently.

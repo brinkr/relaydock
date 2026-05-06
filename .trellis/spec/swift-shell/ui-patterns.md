@@ -12,6 +12,15 @@ Use a native desktop shell:
 
 The window and traffic-light/titlebar behavior should remain AppKit-native, but the visible RelayDock context bar belongs to the SwiftUI content pane so it starts after the sidebar, matching the LocalPort prototype structure. Do not use an AppKit `NSToolbar` that spans across the sidebar when it makes the title/icon/search/action region drift from the prototype.
 
+When recovering prototype style, measure from LocalPort source or a fresh LocalPort render before changing SwiftUI values. Current prototype anchors:
+
+- sidebar width: about 220pt
+- sidebar traffic-light/titlebar zone: 52pt
+- sidebar nav row: about 30pt with 13pt text and 16pt icons
+- content top context bar: 52pt
+- top search control: about 26pt high and 300pt wide
+- service fallback icon: 20pt rounded square with uppercase first letter
+
 Avoid:
 
 - dashboard home pages
@@ -34,6 +43,8 @@ Use:
 - compact two-line service rows
 
 Keep service rows column-stable. Ports, status, telemetry, provider labels, and row actions should use explicit widths or equivalent stable alignment so changing status text does not reflow the row.
+
+Until the bridge exposes favicon or repo-icon fields for runtime rows, use the LocalPort fallback glyph style for run/recovery services: a subtle 20pt rounded square with an uppercase first letter. Do not invent per-service SF Symbol mappings in Swift based only on service names; those create a different icon language from the prototype and duplicate future domain/icon inference work.
 
 Actions must be explicit:
 

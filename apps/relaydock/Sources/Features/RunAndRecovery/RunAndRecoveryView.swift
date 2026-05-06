@@ -216,7 +216,7 @@ private struct HostRuntimeGroup: View {
                             .filter { $0.state == .recoverable }
                             .forEach { onRecover($0.ruleId) }
                     } label: {
-                        Label("恢复全部", systemImage: "play.fill")
+                        Label("恢复全部", systemImage: "arrow.clockwise")
                     }
                     .disabled(!host.rows.contains { $0.state == .recoverable })
 
@@ -290,8 +290,8 @@ private struct RuntimeServiceRow: View {
 
                 HStack(spacing: 7) {
                     Text(row.serviceName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.92))
                         .lineLimit(1)
 
                     Label(row.alias, systemImage: "arrow.up.forward.square")
@@ -304,15 +304,11 @@ private struct RuntimeServiceRow: View {
 
                 Spacer()
 
-                HStack(spacing: 4) {
-                    Image(systemName: providerSymbolName)
-                        .font(.system(size: 10, weight: .medium))
-                    Text(row.providerLabel)
-                        .lineLimit(1)
-                }
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: Metrics.providerWidth, alignment: .trailing)
+                Text(row.providerLabel)
+                    .lineLimit(1)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: Metrics.providerWidth, alignment: .trailing)
             }
 
             HStack(spacing: 8) {
@@ -389,10 +385,6 @@ private struct RuntimeServiceRow: View {
 
     private var errorColor: Color {
         row.state == .recoverable ? .secondary : .red
-    }
-
-    private var providerSymbolName: String {
-        row.providerLabel.localizedCaseInsensitiveContains("tailscale") ? "point.3.connected.trianglepath.dotted" : "terminal"
     }
 
     private func buttonRole(for action: RunRecoveryActionKind) -> ButtonRole? {
@@ -529,7 +521,7 @@ struct ServiceGlyph: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack {
             RoundedRectangle(cornerRadius: 5)
                 .fill(glyphBackground)
                 .overlay {
@@ -537,114 +529,26 @@ struct ServiceGlyph: View {
                         .stroke(glyphBorder, lineWidth: 1)
                 }
 
-            Image(systemName: glyph.systemImage)
-                .font(.system(size: glyph.pointSize, weight: .semibold))
+            Text(String(name.prefix(1)).uppercased())
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(glyphColor)
                 .frame(width: 20, height: 20)
-
-            if glyph.isFallback {
-                Text(String(name.prefix(1)).uppercased())
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(glyphColor)
-                    .frame(width: 20, height: 20)
-            }
         }
         .frame(width: 20, height: 20)
         .accessibilityHidden(true)
     }
 
     private var glyphColor: Color {
-        switch state {
-        case .connected:
-            RelayDockColor.sidebarAccent
-        case .reconnecting:
-            .orange
-        case .error:
-            .red
-        case .recoverable:
-            .secondary
-        }
+        .secondary
     }
 
     private var glyphBackground: Color {
-        switch state {
-        case .connected:
-            Color.blue.opacity(0.08)
-        case .reconnecting:
-            Color.orange.opacity(0.10)
-        case .error:
-            Color.red.opacity(0.08)
-        case .recoverable:
-            RelayDockColor.controlBackground
-        }
+        RelayDockColor.controlBackground
     }
 
     private var glyphBorder: Color {
-        switch state {
-        case .connected:
-            Color.blue.opacity(0.18)
-        case .reconnecting:
-            Color.orange.opacity(0.18)
-        case .error:
-            Color.red.opacity(0.18)
-        case .recoverable:
-            RelayDockColor.subtleBorder.opacity(0.8)
-        }
+        RelayDockColor.subtleBorder.opacity(0.8)
     }
-
-    private var glyph: ServiceGlyphKind {
-        let normalizedName = name.lowercased()
-
-        if normalizedName.contains("react")
-            || normalizedName.contains("next")
-            || normalizedName.contains("vue")
-            || normalizedName.contains("frontend")
-            || normalizedName.contains("web") {
-            return ServiceGlyphKind(systemImage: "globe", pointSize: 11)
-        }
-
-        if normalizedName.contains("api")
-            || normalizedName.contains("backend")
-            || normalizedName.contains("fastapi")
-            || normalizedName.contains("microservice") {
-            return ServiceGlyphKind(systemImage: "curlybraces", pointSize: 11)
-        }
-
-        if normalizedName.contains("postgres")
-            || normalizedName.contains("mysql")
-            || normalizedName.contains("redis")
-            || normalizedName.contains("elastic")
-            || normalizedName.contains("mongo")
-            || normalizedName.contains("database")
-            || normalizedName.contains("cache") {
-            return ServiceGlyphKind(systemImage: "cylinder.split.1x2", pointSize: 11)
-        }
-
-        if normalizedName.contains("rabbit")
-            || normalizedName.contains("queue")
-            || normalizedName.contains("mq")
-            || normalizedName.contains("kafka") {
-            return ServiceGlyphKind(systemImage: "arrow.left.arrow.right", pointSize: 10)
-        }
-
-        if normalizedName.contains("docker")
-            || normalizedName.contains("registry")
-            || normalizedName.contains("container") {
-            return ServiceGlyphKind(systemImage: "shippingbox", pointSize: 11)
-        }
-
-        if normalizedName.contains("adb") || normalizedName.contains("android") {
-            return ServiceGlyphKind(systemImage: "apps.iphone", pointSize: 11)
-        }
-
-        return ServiceGlyphKind(systemImage: "square", pointSize: 8, isFallback: true)
-    }
-}
-
-private struct ServiceGlyphKind {
-    let systemImage: String
-    let pointSize: CGFloat
-    var isFallback = false
 }
 
 private struct PortMappingText: View {

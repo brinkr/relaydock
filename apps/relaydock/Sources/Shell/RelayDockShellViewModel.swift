@@ -464,14 +464,27 @@ enum RelayDockSection: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
+    var sidebarSystemImage: String {
         switch self {
         case .runAndRecovery:
             "waveform.path.ecg"
         case .registry:
             "server.rack"
         case .logsAndDiagnostics:
-            "doc.text.magnifyingglass"
+            "doc.text"
+        case .preferences:
+            "gearshape"
+        }
+    }
+
+    var topBarSystemImage: String {
+        switch self {
+        case .runAndRecovery:
+            "waveform.path.ecg"
+        case .registry:
+            "book"
+        case .logsAndDiagnostics:
+            "doc.text"
         case .preferences:
             "gearshape"
         }
