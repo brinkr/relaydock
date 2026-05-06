@@ -621,3 +621,36 @@ Moved run/recovery recover, clear, and temporary local-port override actions fro
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Implement real retry action
+
+**Date**: 2026-05-06
+**Task**: Implement real retry action
+**Branch**: `main`
+
+### Summary
+
+Moved run/recovery retry from demo snapshot mutation to a real JSON bridge command. Added retry_runtime_instance with runtime_id-only input, persisted-state validation, current-binding relaunch, provider pid refresh, stale pid cleanup on failures, Swift bridge/view-model routing, app-facing demo action removal, focused Rust tests, and bridge/provider spec contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e0fe274` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
