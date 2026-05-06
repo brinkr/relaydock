@@ -9,14 +9,10 @@ enum RelayDockBridgeCommand: Encodable {
     case saveRegistryRule(SaveRegistryRuleCommand)
     case startRule(StartRuleCommand)
     case stopRuntimeInstance(StopRuntimeInstanceCommand)
+    case retryRuntimeInstance(RetryRuntimeInstanceCommand)
     case recoverItem(RecoverItemCommand)
     case applyLocalPortOverride(ApplyLocalPortOverrideCommand)
     case clearRecoveryItem(ClearRecoveryItemCommand)
-    case startDemoRule(DemoRuleActionCommand)
-    case retryDemoRuntime(DemoRuntimeActionCommand)
-    case stopDemoRuntime(DemoRuntimeActionCommand)
-    case clearDemoRecoveryItem(DemoRecoveryActionCommand)
-    case applyDemoLocalPortOverride(DemoLocalPortOverrideCommand)
 
     private enum CodingKeys: String, CodingKey {
         case command
@@ -59,6 +55,9 @@ enum RelayDockBridgeCommand: Encodable {
         case let .stopRuntimeInstance(command):
             try container.encode("stop_runtime_instance", forKey: .command)
             try container.encode(command.runtimeId, forKey: .runtimeId)
+        case let .retryRuntimeInstance(command):
+            try container.encode("retry_runtime_instance", forKey: .command)
+            try container.encode(command.runtimeId, forKey: .runtimeId)
         case let .recoverItem(command):
             try container.encode("recover_item", forKey: .command)
             try container.encode(command.ruleId, forKey: .ruleId)
@@ -69,27 +68,6 @@ enum RelayDockBridgeCommand: Encodable {
         case let .clearRecoveryItem(command):
             try container.encode("clear_recovery_item", forKey: .command)
             try container.encode(command.recoveryId, forKey: .recoveryId)
-        case let .startDemoRule(command):
-            try container.encode("start_demo_rule", forKey: .command)
-            try container.encode(command.ruleId, forKey: .ruleId)
-            try container.encode(command.snapshot, forKey: .snapshot)
-        case let .retryDemoRuntime(command):
-            try container.encode("retry_demo_runtime", forKey: .command)
-            try container.encode(command.runtimeId, forKey: .runtimeId)
-            try container.encode(command.snapshot, forKey: .snapshot)
-        case let .stopDemoRuntime(command):
-            try container.encode("stop_demo_runtime", forKey: .command)
-            try container.encode(command.runtimeId, forKey: .runtimeId)
-            try container.encode(command.snapshot, forKey: .snapshot)
-        case let .clearDemoRecoveryItem(command):
-            try container.encode("clear_demo_recovery_item", forKey: .command)
-            try container.encode(command.recoveryId, forKey: .recoveryId)
-            try container.encode(command.snapshot, forKey: .snapshot)
-        case let .applyDemoLocalPortOverride(command):
-            try container.encode("apply_demo_local_port_override", forKey: .command)
-            try container.encode(command.ruleId, forKey: .ruleId)
-            try container.encode(command.localPort, forKey: .localPort)
-            try container.encode(command.snapshot, forKey: .snapshot)
         }
     }
 }
@@ -101,27 +79,6 @@ struct CheckPortClaimCommand: Codable, Equatable {
 
 struct ParseSshCommandCommand: Codable, Equatable {
     var commandText: String
-}
-
-struct DemoRuleActionCommand: Codable, Equatable {
-    var ruleId: String
-    var snapshot: RunRecoverySnapshotResult
-}
-
-struct DemoRuntimeActionCommand: Codable, Equatable {
-    var runtimeId: String
-    var snapshot: RunRecoverySnapshotResult
-}
-
-struct DemoLocalPortOverrideCommand: Codable, Equatable {
-    var ruleId: String
-    var localPort: UInt16
-    var snapshot: RunRecoverySnapshotResult
-}
-
-struct DemoRecoveryActionCommand: Codable, Equatable {
-    var recoveryId: String
-    var snapshot: RunRecoverySnapshotResult
 }
 
 struct SaveRegistryHostCommand: Codable, Equatable {
@@ -137,6 +94,10 @@ struct StartRuleCommand: Codable, Equatable {
 }
 
 struct StopRuntimeInstanceCommand: Codable, Equatable {
+    var runtimeId: String
+}
+
+struct RetryRuntimeInstanceCommand: Codable, Equatable {
     var runtimeId: String
 }
 

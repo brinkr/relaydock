@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/05-06-real-retry-action/prd.md","reason":"Acceptance criteria and explicit scope boundaries to verify."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Check command-level bridge ownership and app-facing no-snapshot retry behavior."}
+{"file":".trellis/spec/bridge/error-mapping.md","reason":"Check structured errors retain affected runtime and diagnostic details."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"Check runtime state transitions and ProviderProcessRecord ownership."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"Check provider pid metadata and OpenSSH launch contracts."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Check Swift view model does not invent runtime state."}

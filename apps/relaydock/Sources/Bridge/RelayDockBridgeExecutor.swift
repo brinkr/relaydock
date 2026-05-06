@@ -126,6 +126,12 @@ final class RelayDockBridgeExecutor {
         return try unwrapRunRecoverySnapshot(result, actionDescription: "stop runtime instance")
     }
 
+    func retryRuntimeInstance(runtimeId: String) throws -> RunRecoverySnapshotResult {
+        let command = RetryRuntimeInstanceCommand(runtimeId: runtimeId)
+        let result = try execute(.retryRuntimeInstance(command))
+        return try unwrapRunRecoverySnapshot(result, actionDescription: "retry runtime instance")
+    }
+
     func recoverItem(ruleId: String) throws -> RunRecoverySnapshotResult {
         let command = RecoverItemCommand(ruleId: ruleId)
         let result = try execute(.recoverItem(command))
@@ -142,47 +148,6 @@ final class RelayDockBridgeExecutor {
         let command = ClearRecoveryItemCommand(recoveryId: recoveryId)
         let result = try execute(.clearRecoveryItem(command))
         return try unwrapRunRecoverySnapshot(result, actionDescription: "clear recovery item")
-    }
-
-    func startDemoRule(ruleId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
-        let command = DemoRuleActionCommand(ruleId: ruleId, snapshot: snapshot)
-        let result = try execute(.startDemoRule(command))
-        return try unwrapRunRecoverySnapshot(result, actionDescription: "start demo rule")
-    }
-
-    func retryDemoRuntime(runtimeId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
-        let command = DemoRuntimeActionCommand(runtimeId: runtimeId, snapshot: snapshot)
-        let result = try execute(.retryDemoRuntime(command))
-        return try unwrapRunRecoverySnapshot(result, actionDescription: "retry demo runtime")
-    }
-
-    func stopDemoRuntime(runtimeId: String, snapshot: RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult {
-        let command = DemoRuntimeActionCommand(runtimeId: runtimeId, snapshot: snapshot)
-        let result = try execute(.stopDemoRuntime(command))
-        return try unwrapRunRecoverySnapshot(result, actionDescription: "stop demo runtime")
-    }
-
-    func applyDemoLocalPortOverride(
-        ruleId: String,
-        localPort: UInt16,
-        snapshot: RunRecoverySnapshotResult
-    ) throws -> RunRecoverySnapshotResult {
-        let command = DemoLocalPortOverrideCommand(
-            ruleId: ruleId,
-            localPort: localPort,
-            snapshot: snapshot
-        )
-        let result = try execute(.applyDemoLocalPortOverride(command))
-        return try unwrapRunRecoverySnapshot(result, actionDescription: "apply demo local port override")
-    }
-
-    func clearDemoRecoveryItem(
-        recoveryId: String,
-        snapshot: RunRecoverySnapshotResult
-    ) throws -> RunRecoverySnapshotResult {
-        let command = DemoRecoveryActionCommand(recoveryId: recoveryId, snapshot: snapshot)
-        let result = try execute(.clearDemoRecoveryItem(command))
-        return try unwrapRunRecoverySnapshot(result, actionDescription: "clear demo recovery item")
     }
 
     private func runBridgeProcess(commandData: Data) throws -> Data {

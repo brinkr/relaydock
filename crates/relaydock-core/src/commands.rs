@@ -35,6 +35,7 @@ pub enum BridgeCommand {
     SaveRegistryRule(SaveRegistryRuleCommand),
     StartRule(StartRuleCommand),
     StopRuntimeInstance(StopRuntimeInstanceCommand),
+    RetryRuntimeInstance(RetryRuntimeInstanceCommand),
     RecoverItem(RecoverItemCommand),
     ApplyLocalPortOverride(ApplyLocalPortOverrideCommand),
     ClearRecoveryItem(ClearRecoveryItemCommand),
@@ -111,6 +112,12 @@ pub struct StartRuleCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StopRuntimeInstanceCommand {
+    pub runtime_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetryRuntimeInstanceCommand {
     pub runtime_id: String,
 }
 
@@ -632,6 +639,9 @@ pub fn execute_bridge_command(
         BridgeCommand::StopRuntimeInstance(command) => Ok(
             BridgeCommandResult::RunRecoverySnapshot(stop_runtime_instance(command)?),
         ),
+        BridgeCommand::RetryRuntimeInstance(command) => Ok(
+            BridgeCommandResult::RunRecoverySnapshot(retry_runtime_instance(command)?),
+        ),
         BridgeCommand::RecoverItem(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             recover_item(command)?,
         )),
@@ -765,6 +775,22 @@ pub fn stop_runtime_instance(
     {
         let mut store = open_registry_store()?;
         stop_runtime_instance_in_store(&mut store, command, SystemPidProcessController)
+    }
+}
+
+pub fn retry_runtime_instance(
+    command: RetryRuntimeInstanceCommand,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        retry_runtime_instance_in_store(&mut store, command, OpenSshProvider::system())
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        retry_runtime_instance_in_store(&mut store, command, OpenSshProvider::system())
     }
 }
 
@@ -1798,6 +1824,220 @@ fn stop_runtime_instance_in_store(
             affected_recovery_id: None,
             error: None,
         }),
+    ))
+}
+
+fn retry_runtime_instance_in_store<L>(
+    store: &mut RelayDockStore,
+    command: RetryRuntimeInstanceCommand,
+    provider: OpenSshProvider<L>,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>>
+where
+    L: ProviderProcessLauncher,
+{
+    let configuration = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let runtime_instance_id = RuntimeInstanceId::from(command.runtime_id.trim().to_string());
+
+    if runtime_instance_id.as_str().is_empty() {
+        return Err(Box::new(recovery_action_error(
+            "缺少要重试的运行实例",
+            Some("runtime_id must not be empty.".to_string()),
+            None,
+            None,
+            None,
+        )));
+    }
+
+    let mut runtime_snapshot = store
+        .load_runtime_snapshot()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let recovery_collection = store
+        .load_recovery_collection()
+        .map_err(storage_error_to_bridge)?;
+    let instance = runtime_snapshot
+        .instances
+        .iter()
+        .find(|instance| instance.id == runtime_instance_id)
+        .cloned()
+        .ok_or_else(|| {
+            Box::new(recovery_action_error(
+                "未找到要重试的运行实例",
+                Some(format!("runtime_id={runtime_instance_id}")),
+                None,
+                Some(runtime_instance_id.to_string()),
+                None,
+            ))
+        })?;
+
+    if !matches!(
+        instance.status,
+        RuntimeStatus::Reconnecting | RuntimeStatus::Error
+    ) {
+        return Err(Box::new(recovery_action_error(
+            "运行实例当前状态不可重试",
+            Some(format!(
+                "runtime_id={runtime_instance_id}; status={:?}; only reconnecting or error runtimes can be retried.",
+                instance.status
+            )),
+            Some(instance.rule_id.to_string()),
+            Some(runtime_instance_id.to_string()),
+            None,
+        )));
+    }
+
+    let (host, rule, provider_target) = find_start_rule_context(&configuration, &instance.rule_id)?;
+
+    if rule.provider_target_id != instance.provider_target_id
+        || rule.host_id != instance.host_id
+        || provider_target.id != instance.provider_target_id
+    {
+        return Err(Box::new(recovery_action_error(
+            "运行实例引用的规则或 provider 已变化",
+            Some(format!(
+                "runtime_id={runtime_instance_id}; rule_id={}; runtime_host_id={}; runtime_provider_target_id={}; rule_host_id={}; rule_provider_target_id={}",
+                instance.rule_id,
+                instance.host_id,
+                instance.provider_target_id,
+                rule.host_id,
+                rule.provider_target_id
+            )),
+            Some(instance.rule_id.to_string()),
+            Some(runtime_instance_id.to_string()),
+            None,
+        )));
+    }
+
+    let mut handle = match provider.start_rule_with_bindings(
+        host,
+        rule,
+        provider_target,
+        runtime_instance_id.clone(),
+        instance.local_bindings,
+    ) {
+        Ok(handle) => handle,
+        Err(error) => {
+            remove_provider_process_record(&mut runtime_snapshot, &runtime_instance_id);
+            store
+                .save_runtime_snapshot(&runtime_snapshot)
+                .map_err(storage_error_to_bridge)?;
+            return Err(provider_error_to_bridge(error));
+        }
+    };
+    let observation = match handle.observe_status(SystemTime::now()) {
+        Ok(observation) => observation,
+        Err(error) => {
+            remove_provider_process_record(&mut runtime_snapshot, &runtime_instance_id);
+            store
+                .save_runtime_snapshot(&runtime_snapshot)
+                .map_err(storage_error_to_bridge)?;
+            return Err(provider_error_to_bridge(error));
+        }
+    };
+
+    let mut runtime_instance = observation.runtime_instance;
+    if let Some(diagnostic) = observation.diagnostic {
+        let error = BridgeError::provider_failure(&diagnostic);
+        upsert_runtime_instance(&mut runtime_snapshot, runtime_instance);
+        remove_provider_process_record(&mut runtime_snapshot, &runtime_instance_id);
+        store
+            .save_runtime_snapshot(&runtime_snapshot)
+            .map_err(storage_error_to_bridge)?;
+
+        return Ok(run_recovery_snapshot_from_store_snapshots(
+            &configuration,
+            &runtime_snapshot,
+            &recovery_collection,
+            Some(RunRecoveryActionStatus {
+                ok: false,
+                message: error.summary.clone(),
+                affected_rule_id: Some(rule.id.to_string()),
+                affected_runtime_id: Some(runtime_instance_id.to_string()),
+                affected_recovery_id: None,
+                error: Some(error),
+            }),
+        ));
+    }
+
+    let pid = match observation.status {
+        ProviderProcessStatus::Running { pid: Some(pid) } => pid,
+        ProviderProcessStatus::Running { pid: None } => {
+            remove_provider_process_record(&mut runtime_snapshot, &runtime_instance_id);
+            store
+                .save_runtime_snapshot(&runtime_snapshot)
+                .map_err(storage_error_to_bridge)?;
+
+            return Err(Box::new(recovery_action_error(
+                "运行实例缺少 provider 进程信息",
+                Some(format!(
+                    "rule_id={}, runtime_id={runtime_instance_id}; this sidecar cannot persist a retried runtime without provider pid metadata.",
+                    rule.id
+                )),
+                Some(rule.id.to_string()),
+                Some(runtime_instance_id.to_string()),
+                None,
+            )));
+        }
+        ProviderProcessStatus::Exited { .. } => {
+            return Err(Box::new(recovery_action_error(
+                "OpenSSH 进程在重试完成前退出",
+                Some(format!(
+                    "rule_id={}, runtime_id={runtime_instance_id}",
+                    rule.id
+                )),
+                Some(rule.id.to_string()),
+                Some(runtime_instance_id.to_string()),
+                None,
+            )));
+        }
+    };
+
+    for binding in &mut runtime_instance.local_bindings {
+        if runtime_snapshot
+            .local_port_overrides
+            .iter()
+            .any(|override_record| {
+                override_record.runtime_instance_id == runtime_instance_id
+                    && override_record.effective_port == binding.local_port
+            })
+        {
+            binding.temporary_override = true;
+        }
+    }
+
+    let process_record = ProviderProcessRecord {
+        runtime_instance_id: runtime_instance_id.clone(),
+        provider_kind: ProviderProcessKind::OpenSsh,
+        pid,
+        command_summary: handle.command().display_command(),
+        target_label: handle.target_label().to_string(),
+        started_at: runtime_instance.started_at,
+        last_observed_at: SystemTime::now(),
+    };
+    let last_action = Some(RunRecoveryActionStatus {
+        ok: true,
+        message: "已重试运行实例".to_string(),
+        affected_rule_id: Some(rule.id.to_string()),
+        affected_runtime_id: Some(runtime_instance_id.to_string()),
+        affected_recovery_id: None,
+        error: None,
+    });
+
+    upsert_runtime_instance(&mut runtime_snapshot, runtime_instance);
+    upsert_provider_process_record(&mut runtime_snapshot, process_record);
+
+    store
+        .save_runtime_snapshot(&runtime_snapshot)
+        .map_err(storage_error_to_bridge)?;
+
+    Ok(run_recovery_snapshot_from_store_snapshots(
+        &configuration,
+        &runtime_snapshot,
+        &recovery_collection,
+        last_action,
     ))
 }
 
@@ -3215,6 +3455,33 @@ mod tests {
     }
 
     #[derive(Clone, Debug)]
+    struct FailingLauncher {
+        launched: Rc<RefCell<Vec<OpenSshCommand>>>,
+    }
+
+    impl ProviderProcessLauncher for FailingLauncher {
+        type Process = MockProcess;
+
+        fn launch(&self, command: &OpenSshCommand) -> Result<Self::Process, ProviderError> {
+            self.launched.borrow_mut().push(command.clone());
+            Err(ProviderError {
+                diagnostic: Box::new(ProviderDiagnostic {
+                    code: ProviderDiagnosticCode::ProcessStartFailed,
+                    summary: "OpenSSH process could not be started".to_string(),
+                    detail: Some("mock spawn failure".to_string()),
+                    rule_id: None,
+                    provider_target_id: None,
+                    runtime_instance_id: None,
+                    suggested_recovery: Some(
+                        "Check that system ssh is installed and the provider target is reachable."
+                            .to_string(),
+                    ),
+                }),
+            })
+        }
+    }
+
+    #[derive(Clone, Debug)]
     struct MockProcess {
         pid: Option<u32>,
         exit: Option<ProviderProcessExit>,
@@ -3979,6 +4246,471 @@ mod tests {
             error.affected_runtime_id.as_deref(),
             Some("runtime-rule-react")
         );
+    }
+
+    #[test]
+    fn retry_runtime_instance_relaunches_error_runtime_with_current_bindings() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let mut runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![
+                crate::runtime::LocalPortBinding::new(3000, "127.0.0.1", 3000),
+                crate::runtime::LocalPortBinding::new(3001, "127.0.0.1", 3001),
+            ],
+        );
+        let override_record = runtime
+            .apply_local_port_override(3000, 4300, OverrideReason::Manual)
+            .expect("override applies");
+        runtime.mark_error(crate::runtime::RuntimeErrorInfo::new(
+            crate::runtime::RuntimeErrorCode::ProviderExited,
+            "OpenSSH process exited",
+        ));
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![runtime],
+                provider_processes: vec![ProviderProcessRecord {
+                    runtime_instance_id: RuntimeInstanceId::from("runtime-rule-react"),
+                    provider_kind: ProviderProcessKind::OpenSsh,
+                    pid: 4242,
+                    command_summary: "old ssh".to_string(),
+                    target_label: "SSH · 家".to_string(),
+                    started_at: Some(UNIX_EPOCH),
+                    last_observed_at: UNIX_EPOCH,
+                }],
+                local_port_overrides: vec![override_record],
+            })
+            .expect("runtime saves");
+        let launched = Rc::new(RefCell::new(Vec::new()));
+
+        let snapshot = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: launched.clone(),
+                next_process: MockProcess {
+                    pid: Some(6262),
+                    exit: None,
+                },
+            }),
+        )
+        .expect("runtime retries");
+
+        assert!(launched.borrow()[0]
+            .args
+            .contains(&"4300:127.0.0.1:3000".to_string()));
+        assert!(launched.borrow()[0]
+            .args
+            .contains(&"3001:127.0.0.1:3001".to_string()));
+        assert!(snapshot
+            .last_action
+            .as_ref()
+            .is_some_and(|status| status.ok));
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.state, RunRecoveryRowState::Connected);
+        assert_eq!(row.runtime_id.as_deref(), Some("runtime-rule-react"));
+        assert_eq!(row.error, None);
+        assert_eq!(row.port_summary, "4300 + 3001");
+
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(
+            runtime_snapshot.instances[0].status,
+            RuntimeStatus::Connected
+        );
+        assert_eq!(runtime_snapshot.instances[0].last_error, None);
+        assert!(runtime_snapshot.instances[0].local_bindings[0].temporary_override);
+        assert_eq!(runtime_snapshot.provider_processes.len(), 1);
+        assert_eq!(runtime_snapshot.provider_processes[0].pid, 6262);
+        assert!(runtime_snapshot.provider_processes[0]
+            .command_summary
+            .contains("4300:127.0.0.1:3000"));
+    }
+
+    #[test]
+    fn retry_runtime_instance_allows_reconnecting_runtime() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let mut runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![crate::runtime::LocalPortBinding::new(
+                3000,
+                "127.0.0.1",
+                3000,
+            )],
+        );
+        runtime.mark_reconnecting("keepalive timeout");
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![runtime],
+                provider_processes: Vec::new(),
+                local_port_overrides: Vec::new(),
+            })
+            .expect("runtime saves");
+
+        let snapshot = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: Some(6263),
+                    exit: None,
+                },
+            }),
+        )
+        .expect("runtime retries");
+
+        assert_eq!(
+            snapshot.hosts[0].rows[0].state,
+            RunRecoveryRowState::Connected
+        );
+        assert_eq!(
+            store
+                .load_runtime_snapshot()
+                .expect("runtime loads")
+                .expect("runtime exists")
+                .provider_processes[0]
+                .pid,
+            6263
+        );
+    }
+
+    #[test]
+    fn retry_runtime_instance_returns_structured_errors_for_invalid_inputs() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+
+        let empty_error = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "  ".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: Some(1),
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("empty runtime id is invalid");
+        assert_eq!(empty_error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(empty_error.affected_runtime_id, None);
+
+        let missing_error = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "missing-runtime".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: Some(1),
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("missing runtime is invalid");
+        assert_eq!(missing_error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(
+            missing_error.affected_runtime_id.as_deref(),
+            Some("missing-runtime")
+        );
+
+        let mut connected_runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![crate::runtime::LocalPortBinding::new(
+                3000,
+                "127.0.0.1",
+                3000,
+            )],
+        );
+        connected_runtime.mark_connected(UNIX_EPOCH);
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![connected_runtime],
+                provider_processes: Vec::new(),
+                local_port_overrides: Vec::new(),
+            })
+            .expect("runtime saves");
+
+        let state_error = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: Some(1),
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("connected runtime is not retryable");
+        assert_eq!(state_error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(state_error.affected_rule_id.as_deref(), Some("rule-react"));
+        assert_eq!(
+            state_error.affected_runtime_id.as_deref(),
+            Some("runtime-rule-react")
+        );
+    }
+
+    #[test]
+    fn retry_runtime_instance_requires_provider_pid_before_persisting_retry() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let mut runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![crate::runtime::LocalPortBinding::new(
+                3000,
+                "127.0.0.1",
+                3000,
+            )],
+        );
+        runtime.mark_error(crate::runtime::RuntimeErrorInfo::new(
+            crate::runtime::RuntimeErrorCode::ProviderExited,
+            "OpenSSH process exited",
+        ));
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![runtime],
+                provider_processes: Vec::new(),
+                local_port_overrides: Vec::new(),
+            })
+            .expect("runtime saves");
+
+        let error = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: None,
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("retried runtime without pid metadata must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(error.affected_rule_id.as_deref(), Some("rule-react"));
+        assert_eq!(
+            error.affected_runtime_id.as_deref(),
+            Some("runtime-rule-react")
+        );
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(runtime_snapshot.instances[0].status, RuntimeStatus::Error);
+        assert!(runtime_snapshot.provider_processes.is_empty());
+    }
+
+    #[test]
+    fn retry_runtime_instance_clears_stale_pid_when_launch_fails() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let mut runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![crate::runtime::LocalPortBinding::new(
+                3000,
+                "127.0.0.1",
+                3000,
+            )],
+        );
+        runtime.mark_error(crate::runtime::RuntimeErrorInfo::new(
+            crate::runtime::RuntimeErrorCode::ProviderExited,
+            "previous OpenSSH process exited",
+        ));
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![runtime],
+                provider_processes: vec![ProviderProcessRecord {
+                    runtime_instance_id: RuntimeInstanceId::from("runtime-rule-react"),
+                    provider_kind: ProviderProcessKind::OpenSsh,
+                    pid: 4242,
+                    command_summary: "old ssh".to_string(),
+                    target_label: "SSH · 家".to_string(),
+                    started_at: Some(UNIX_EPOCH),
+                    last_observed_at: UNIX_EPOCH,
+                }],
+                local_port_overrides: Vec::new(),
+            })
+            .expect("runtime saves");
+        let launched = Rc::new(RefCell::new(Vec::new()));
+
+        let error = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            OpenSshProvider::new(FailingLauncher {
+                launched: launched.clone(),
+            }),
+        )
+        .expect_err("spawn failure must be surfaced");
+
+        assert_eq!(error.code, BridgeErrorCode::ProviderProcessFailed);
+        assert_eq!(
+            error.affected_runtime_id.as_deref(),
+            Some("runtime-rule-react")
+        );
+        assert_eq!(launched.borrow().len(), 1);
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(runtime_snapshot.instances[0].status, RuntimeStatus::Error);
+        assert!(runtime_snapshot.provider_processes.is_empty());
+    }
+
+    #[test]
+    fn retry_runtime_instance_preserves_diagnostic_failure_without_faking_connected() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let mut runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![crate::runtime::LocalPortBinding::new(
+                3000,
+                "127.0.0.1",
+                3000,
+            )],
+        );
+        runtime.mark_error(crate::runtime::RuntimeErrorInfo::new(
+            crate::runtime::RuntimeErrorCode::ProviderExited,
+            "previous OpenSSH process exited",
+        ));
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![runtime],
+                provider_processes: vec![ProviderProcessRecord {
+                    runtime_instance_id: RuntimeInstanceId::from("runtime-rule-react"),
+                    provider_kind: ProviderProcessKind::OpenSsh,
+                    pid: 4242,
+                    command_summary: "old ssh".to_string(),
+                    target_label: "SSH · 家".to_string(),
+                    started_at: Some(UNIX_EPOCH),
+                    last_observed_at: UNIX_EPOCH,
+                }],
+                local_port_overrides: Vec::new(),
+            })
+            .expect("runtime saves");
+
+        let snapshot = retry_runtime_instance_in_store(
+            &mut store,
+            RetryRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: Some(6264),
+                    exit: Some(ProviderProcessExit {
+                        code: Some(255),
+                        success: false,
+                    }),
+                },
+            }),
+        )
+        .expect("diagnostic failure returns snapshot status");
+
+        let status = snapshot.last_action.expect("last action exists");
+        assert!(!status.ok);
+        assert_eq!(
+            status.error.as_ref().map(|error| &error.code),
+            Some(&BridgeErrorCode::ProviderProcessFailed)
+        );
+        assert_eq!(snapshot.hosts[0].rows[0].state, RunRecoveryRowState::Error);
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(runtime_snapshot.instances[0].status, RuntimeStatus::Error);
+        assert_eq!(
+            runtime_snapshot.instances[0]
+                .last_error
+                .as_ref()
+                .map(|error| &error.summary),
+            Some(&"OpenSSH process exited".to_string())
+        );
+        assert!(runtime_snapshot.provider_processes.is_empty());
+    }
+
+    #[test]
+    fn retry_runtime_instance_command_accepts_only_runtime_id_input() {
+        let command: BridgeCommand = serde_json::from_value(json!({
+            "command": "retry_runtime_instance",
+            "runtime_id": "runtime-rule-react"
+        }))
+        .expect("retry command decodes");
+
+        assert_eq!(
+            command,
+            BridgeCommand::RetryRuntimeInstance(RetryRuntimeInstanceCommand {
+                runtime_id: "runtime-rule-react".to_string(),
+            })
+        );
+
+        let error = serde_json::from_value::<BridgeCommand>(json!({
+            "command": "retry_runtime_instance",
+            "runtime_id": "runtime-rule-react",
+            "snapshot": load_run_recovery_snapshot()
+        }))
+        .expect_err("retry command must reject Swift-submitted snapshots");
+
+        assert!(error.to_string().contains("unknown field `snapshot`"));
     }
 
     #[test]

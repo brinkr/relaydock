@@ -106,3 +106,74 @@ Correct:
 let plan = build_openssh_launch_plan(host, rule, provider_target, runtime_id)?;
 launcher.launch(&plan.command)?;
 ```
+
+## Real Retry Runtime Provider Path
+
+### 1. Scope / Trigger
+
+- Trigger: `retry_runtime_instance` relaunches a persisted runtime that is currently `Reconnecting` or `Error`.
+- Provider: system OpenSSH through `OpenSshProvider::start_rule_with_bindings`.
+- Owner: Rust core owns launch, observation, pid persistence, and failure attribution.
+
+### 2. Signatures
+
+Rust entrypoints:
+
+```rust
+retry_runtime_instance(RetryRuntimeInstanceCommand { runtime_id })
+retry_runtime_instance_in_store(store, command, OpenSshProvider::system())
+OpenSshProvider::start_rule_with_bindings(host, rule, provider_target, runtime_instance_id, runtime.local_bindings)
+```
+
+### 3. Contracts
+
+- Retry must load the persisted runtime instance from `RuntimeSnapshot`; configured/recoverable rows are not retry inputs.
+- Retry must relaunch with the runtime's current `local_bindings`, not rebuilt saved `Rule` ports, so session-local overrides survive.
+- A successful retry requires `ProviderProcessStatus::Running { pid: Some(pid) }`.
+- On success, persist a new `ProviderProcessRecord` with the new pid, command summary, target label, started timestamp, and observation timestamp.
+- On provider diagnostic, persist the diagnostic runtime state returned by observation, clear stale pid metadata, and return a non-throwing snapshot with `last_action.ok = false`.
+- On running-without-pid, clear stale pid metadata and return `runtime_lifecycle_failed`.
+
+### 4. Validation & Error Matrix
+
+- Empty runtime ID -> `runtime_lifecycle_failed`.
+- Missing persisted runtime instance -> `runtime_lifecycle_failed`.
+- Runtime status is `Connected`, `Starting`, or `Configured` -> `runtime_lifecycle_failed`.
+- Runtime rule/provider no longer matches current configuration -> `runtime_lifecycle_failed` or validation/provider error.
+- OpenSSH spawn failure -> provider error mapped through `provider_failure`.
+- OpenSSH exits during observation -> snapshot failure status with provider diagnostic; no connected row.
+- OpenSSH running without pid -> `runtime_lifecycle_failed`; no durable connected mutation.
+
+### 5. Good/Base/Bad Cases
+
+- Good: error runtime with `4300 -> 3000` session override retries with `-L 4300:127.0.0.1:3000` and keeps the saved rule at `3000`.
+- Base: reconnecting runtime with no old pid record retries and becomes connected only after new pid metadata is observed.
+- Bad: clearing `last_error` before pid metadata is available.
+- Bad: leaving an old pid record after retry failure.
+
+### 6. Tests Required
+
+- Mock launcher verifies retry launch args use runtime bindings.
+- Success test verifies connected runtime, cleared last error, and fresh pid metadata.
+- Invalid state tests verify non-retryable runtime statuses do not launch.
+- Missing pid and provider diagnostic tests verify no fake connected state and no stale pid metadata.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```rust
+provider.start_rule(host, rule, provider_target, runtime_id)?;
+```
+
+Correct:
+
+```rust
+provider.start_rule_with_bindings(
+    host,
+    rule,
+    provider_target,
+    runtime_id,
+    runtime.local_bindings,
+)?;
+```

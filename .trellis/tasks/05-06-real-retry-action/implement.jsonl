@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/05-06-real-retry-action/prd.md","reason":"Task-specific requirements, acceptance criteria, and out-of-scope boundaries for real retry."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Bridge command shape and no Swift-owned runtime transitions."}
+{"file":".trellis/spec/bridge/error-mapping.md","reason":"Structured bridge error expectations for retry failures."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"RuntimeInstance, ProviderProcessRecord, and runtime state ownership."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"OpenSSH provider lifecycle and pid-backed JSON sidecar constraints."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Run/recovery action routing and Swift shell responsibility boundaries."}

@@ -47,7 +47,7 @@ struct RelayDockShellView: View {
                     viewModel.recoverItem(ruleId: ruleId)
                 },
                 onRetry: { runtimeId in
-                    viewModel.retryDemoRuntime(runtimeId: runtimeId)
+                    viewModel.retryRuntimeInstance(runtimeId: runtimeId)
                 },
                 onStop: { runtimeId in
                     viewModel.stopRuntimeInstance(runtimeId: runtimeId)

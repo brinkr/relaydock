@@ -255,6 +255,78 @@ Correct:
 try executor.applyDemoLocalPortOverride(ruleId: ruleId, localPort: 15432, snapshot: snapshot)
 ```
 
+## Real Runtime Retry Command
+
+### 1. Scope / Trigger
+
+- Trigger: run/recovery `重试` must be a Rust-owned runtime lifecycle action, not a Swift-submitted snapshot mutation.
+- Scope: persisted `RuntimeInstance` rows that are already in `reconnecting` or `error`.
+- Owner: Swift sends only a stable runtime ID; Rust loads configuration/runtime storage, launches the provider, persists runtime/process metadata, and returns a full `run_recovery_snapshot`.
+
+### 2. Signatures
+
+Rust command:
+
+```json
+{"command":"retry_runtime_instance","runtime_id":"runtime-rule-react"}
+```
+
+Swift entrypoint:
+
+```swift
+retryRuntimeInstance(runtimeId: String)
+```
+
+### 3. Contracts
+
+- Request fields:
+  - `runtime_id`: required non-empty persisted runtime instance ID.
+- Request must not include a `snapshot`; app code must not send `RunRecoverySnapshotResult` back to Rust for real retry.
+- Rust must reuse the runtime instance's current `local_bindings`, including any session-local override already persisted in runtime state.
+- On successful provider observation with a pid, Rust persists:
+  - connected `RuntimeInstance` with cleared `last_error`
+  - fresh `ProviderProcessRecord` for the runtime
+  - existing session-local override records unchanged
+- Response is a full `run_recovery_snapshot` with `last_action` describing the retry.
+
+### 4. Validation & Error Matrix
+
+- Missing or empty `runtime_id` -> `runtime_lifecycle_failed`.
+- Runtime ID not found in persisted runtime state -> `runtime_lifecycle_failed` with `affected_runtime_id`.
+- Runtime status other than `reconnecting` or `error` -> `runtime_lifecycle_failed`; do not launch provider.
+- Rule/host/provider target cannot be resolved from current configuration -> structured validation/provider error; do not fake a connected row.
+- Provider diagnostic during launch/observation -> return a snapshot with `last_action.ok = false`, preserve diagnostic detail, keep row non-connected, and clear stale pid metadata.
+- Provider reports running without pid -> `runtime_lifecycle_failed`; do not mark connected and do not keep stale pid metadata.
+
+### 5. Good/Base/Bad Cases
+
+- Good: retrying an `error` runtime with a manual local-port override relaunches OpenSSH using the overridden local port, persists the new pid, and returns a connected row.
+- Base: retrying a `reconnecting` runtime without an old pid record may succeed if the new provider launch exposes pid metadata.
+- Bad: Swift submits a stored `RunRecoverySnapshotResult` to decide retry transitions.
+- Bad: retry launch fails but a stale `ProviderProcessRecord` remains and later makes reconciliation treat the row as connected.
+
+### 6. Tests Required
+
+- JSON decode test proving `retry_runtime_instance` accepts `runtime_id` only and rejects `snapshot`.
+- Success test asserting launch command uses current runtime bindings, row returns `connected`, old error clears, and pid metadata updates.
+- Invalid input tests for empty runtime ID, missing runtime, and non-retryable status.
+- No-pid test asserting `runtime_lifecycle_failed` and no connected row.
+- Provider diagnostic test asserting structured failure status, row stays non-connected, and stale pid metadata is removed.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```json
+{"command":"retry_runtime_instance","runtime_id":"runtime-rule-react","snapshot":{...}}
+```
+
+Correct:
+
+```json
+{"command":"retry_runtime_instance","runtime_id":"runtime-rule-react"}
+```
+
 ## Run/Recovery Registry Projection Extension
 
 ### 1. Scope / Trigger

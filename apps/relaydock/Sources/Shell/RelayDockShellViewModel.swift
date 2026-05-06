@@ -115,18 +115,6 @@ final class RelayDockShellViewModel: ObservableObject {
         isLoadingRunRecovery = false
     }
 
-    func retryDemoRuntime(runtimeId: String) {
-        performSnapshotAction { executor, snapshot in
-            try executor.retryDemoRuntime(runtimeId: runtimeId, snapshot: snapshot)
-        }
-    }
-
-    func stopDemoRuntime(runtimeId: String) {
-        performSnapshotAction { executor, snapshot in
-            try executor.stopDemoRuntime(runtimeId: runtimeId, snapshot: snapshot)
-        }
-    }
-
     func stopRuntimeInstance(runtimeId: String) {
         guard let bridgeExecutor else {
             loadRunRecoverySnapshot()
@@ -136,6 +124,21 @@ final class RelayDockShellViewModel: ObservableObject {
         isLoadingRunRecovery = true
         do {
             applySnapshot(try bridgeExecutor.stopRuntimeInstance(runtimeId: runtimeId))
+        } catch {
+            applyBridgeFailure(error)
+        }
+        isLoadingRunRecovery = false
+    }
+
+    func retryRuntimeInstance(runtimeId: String) {
+        guard let bridgeExecutor else {
+            loadRunRecoverySnapshot()
+            return
+        }
+
+        isLoadingRunRecovery = true
+        do {
+            applySnapshot(try bridgeExecutor.retryRuntimeInstance(runtimeId: runtimeId))
         } catch {
             applyBridgeFailure(error)
         }
@@ -191,7 +194,7 @@ final class RelayDockShellViewModel: ObservableObject {
             return
         }
 
-        retryDemoRuntime(runtimeId: runtimeId)
+        retryRuntimeInstance(runtimeId: runtimeId)
     }
 
     func stopRuntimeForRule(_ ruleId: String) {
@@ -340,26 +343,6 @@ final class RelayDockShellViewModel: ObservableObject {
         }
 
         applyRegistrySnapshot(try bridgeExecutor.saveRegistryRule(rule))
-    }
-
-    private func performSnapshotAction(
-        _ action: (RelayDockBridgeExecutor, RunRecoverySnapshotResult) throws -> RunRecoverySnapshotResult
-    ) {
-        guard let bridgeExecutor else {
-            loadRunRecoverySnapshot()
-            return
-        }
-
-        guard let snapshot = runRecoverySnapshot else {
-            loadRunRecoverySnapshot()
-            return
-        }
-
-        do {
-            applySnapshot(try action(bridgeExecutor, snapshot))
-        } catch {
-            applyBridgeFailure(error)
-        }
     }
 
     private func applySnapshot(_ snapshot: RunRecoverySnapshotResult) {
