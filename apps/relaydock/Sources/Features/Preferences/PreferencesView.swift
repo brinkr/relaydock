@@ -52,9 +52,10 @@ struct PreferencesView: View {
             Text("设置范围")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 7)
 
             ForEach(PreferencesSection.allCases) { section in
                 Button {
@@ -62,19 +63,23 @@ struct PreferencesView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: section.systemImage)
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundStyle(selectedSection == section ? .primary : .secondary)
-                            .frame(width: 14)
+                            .frame(width: 16, alignment: .center)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(section.title)
                                 .font(.system(size: 12, weight: selectedSection == section ? .semibold : .regular))
                                 .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                             Text(section.subtitle)
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         Spacer(minLength: 8)
 
@@ -82,16 +87,21 @@ struct PreferencesView: View {
                             Text(badge)
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .frame(width: 28, alignment: .trailing)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .frame(height: 34)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
                     .background {
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 5)
                             .fill(selectedSection == section ? RelayDockColor.sidebarSelection : Color.clear)
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(accessibilityLabel(for: section))
+                .accessibilityValue(selectedSection == section ? "已选择" : "未选择")
                 .padding(.horizontal, 8)
             }
 
@@ -101,14 +111,15 @@ struct PreferencesView: View {
                 Text("MVP 边界")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Text("当前切片先把设置入口收敛到 native 工具视图，局部交互只保留会话内状态，不写入持久化。")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(14)
+            .padding(12)
         }
-        .background(RelayDockColor.sidebarBackground.opacity(0.48))
+        .background(RelayDockColor.sidebarBackground)
     }
 
     private var detailPane: some View {
@@ -148,7 +159,7 @@ struct PreferencesView: View {
                 .buttonStyle(.borderless)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
     }
 
     private var bridgePane: some View {
@@ -198,34 +209,11 @@ struct PreferencesView: View {
         VStack(alignment: .leading, spacing: 0) {
             preferenceSectionTitle("启动恢复策略")
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("应用启动后的恢复行为")
-                    .font(.system(size: 12, weight: .medium))
-
-                Picker("恢复策略", selection: $recoveryStrategy) {
-                    ForEach(RecoveryStrategy.allCases) { strategy in
-                        Text(strategy.title).tag(strategy)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Text(recoveryStrategy.detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-
-                Toggle("启动后先读取上次运行集合", isOn: $reloadAtLaunch)
-                    .font(.system(size: 12))
-
-                Toggle("唤醒后优先重试 KeepAlive 中断", isOn: $retryAfterWake)
-                    .font(.system(size: 12))
-
-                Text("当前仅保留在本次会话内，用于确认 native 设置结构；后续真实策略应落回 Rust core / storage。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+            PreferenceControlGroup(
+                recoveryStrategy: $recoveryStrategy,
+                reloadAtLaunch: $reloadAtLaunch,
+                retryAfterWake: $retryAfterWake
+            )
 
             Divider()
 
@@ -329,6 +317,14 @@ struct PreferencesView: View {
         case .providers:
             return registrySnapshot == nil ? nil : "\(providerCoverage.values.reduce(0, +))"
         }
+    }
+
+    private func accessibilityLabel(for section: PreferencesSection) -> String {
+        if let badge = badgeText(for: section) {
+            return "\(section.title)，\(badge)"
+        }
+
+        return section.title
     }
 }
 
@@ -480,16 +476,20 @@ private struct PreferenceInfoRow: View {
     let accent: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 10) {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: 92, alignment: .leading)
+                    .lineLimit(1)
+                    .frame(width: 90, alignment: .leading)
 
                 Text(value)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(accent)
                     .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: 118, alignment: .leading)
 
                 Spacer()
             }
@@ -497,11 +497,12 @@ private struct PreferenceInfoRow: View {
             Text(detail)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .padding(.leading, 104)
-                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 100)
+                .lineLimit(2)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
     }
 }
 
@@ -516,10 +517,13 @@ private struct PreferenceActionRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
             }
 
             Spacer()
@@ -527,6 +531,57 @@ private struct PreferenceActionRow: View {
             Button(buttonTitle, action: action)
                 .font(.system(size: 11, weight: .medium))
                 .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct PreferenceControlGroup: View {
+    @Binding var recoveryStrategy: RecoveryStrategy
+    @Binding var reloadAtLaunch: Bool
+    @Binding var retryAfterWake: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center, spacing: 12) {
+                Text("恢复策略")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 90, alignment: .leading)
+
+                Picker("恢复策略", selection: $recoveryStrategy) {
+                    ForEach(RecoveryStrategy.allCases) { strategy in
+                        Text(strategy.title).tag(strategy)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 320)
+
+                Spacer()
+            }
+
+            Text(recoveryStrategy.detail)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 102)
+                .lineLimit(2)
+                .truncationMode(.tail)
+
+            Toggle("启动后先读取上次运行集合", isOn: $reloadAtLaunch)
+                .font(.system(size: 12))
+                .padding(.leading, 100)
+
+            Toggle("唤醒后优先重试 KeepAlive 中断", isOn: $retryAfterWake)
+                .font(.system(size: 12))
+                .padding(.leading, 100)
+
+            Text("当前仅保留在本次会话内，用于确认 native 设置结构；后续真实策略应落回 Rust core / storage。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 102)
+                .lineLimit(2)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

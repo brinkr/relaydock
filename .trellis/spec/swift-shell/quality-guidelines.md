@@ -14,4 +14,5 @@
 - Visual QA must inspect the actual top region of the screenshot: search/actions should read as titlebar toolbar controls, and the sidebar/content must not start below an awkward blank strip.
 - For native screenshot automation, launch RelayDock through a temporary `.app` bundle instead of the raw SwiftPM binary so macOS activation, Accessibility, Screen Recording, and Computer Use can identify the app consistently.
 - Visual QA must fail on black screenshots or missing window rectangles. A black fallback screenshot is not evidence that the UI was inspected.
+- Visual QA must not treat full-screen fallback screenshots as success when the RelayDock window rectangle cannot be located. Fail with the temporary app bundle, bundle id, pid, known window rect, and a keep-open rerun hint instead.
 - On multi-display machines, keep the initial RelayDock window on the primary visible screen so screenshot automation does not capture an offscreen or unavailable display region.

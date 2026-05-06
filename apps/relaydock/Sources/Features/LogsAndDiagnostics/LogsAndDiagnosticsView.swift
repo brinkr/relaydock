@@ -97,9 +97,10 @@ struct LogsAndDiagnosticsView: View {
             Text("诊断范围")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 7)
 
             ForEach(DiagnosticScope.allCases) { scope in
                 Button {
@@ -107,34 +108,43 @@ struct LogsAndDiagnosticsView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: scope.systemImage)
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundStyle(selectedScope == scope ? .primary : .secondary)
-                            .frame(width: 14)
+                            .frame(width: 16, alignment: .center)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(scope.title)
                                 .font(.system(size: 12, weight: selectedScope == scope ? .semibold : .regular))
                                 .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                             Text(scope.subtitle)
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         Spacer(minLength: 8)
 
                         Text("\(count(for: scope))")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .frame(width: 26, alignment: .trailing)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .frame(height: 34)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
                     .background {
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 5)
                             .fill(selectedScope == scope ? RelayDockColor.sidebarSelection : Color.clear)
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("\(scope.title)，\(count(for: scope)) 条")
+                .accessibilityValue(selectedScope == scope ? "已选择" : "未选择")
                 .padding(.horizontal, 8)
             }
 
@@ -144,14 +154,15 @@ struct LogsAndDiagnosticsView: View {
                 Text("当前上下文")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Text(contextSummary)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(14)
+            .padding(12)
         }
-        .background(RelayDockColor.sidebarBackground.opacity(0.48))
+        .background(RelayDockColor.sidebarBackground)
     }
 
     private var workspace: some View {
@@ -177,7 +188,7 @@ struct LogsAndDiagnosticsView: View {
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
 
             Divider()
 
@@ -235,8 +246,8 @@ struct LogsAndDiagnosticsView: View {
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(RelayDockColor.controlBackground.opacity(0.54))
+            .padding(.vertical, 8)
+            .background(RelayDockColor.controlBackground)
         }
     }
 
@@ -302,7 +313,7 @@ struct LogsAndDiagnosticsView: View {
 
             Spacer(minLength: 0)
         }
-        .background(RelayDockColor.controlBackground.opacity(0.24))
+        .background(RelayDockColor.controlBackground)
     }
 
     private var contextSummary: String {
@@ -332,7 +343,7 @@ struct LogsAndDiagnosticsView: View {
             Spacer()
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
     }
 }
 
@@ -570,40 +581,48 @@ private struct DiagnosticConsoleRow: View {
     let entry: DiagnosticEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .top, spacing: 8) {
                 Text(entry.timestamp)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .frame(width: 70, alignment: .leading)
+                    .lineLimit(1)
+                    .frame(width: 68, alignment: .leading)
 
                 Text(entry.level.title)
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(entry.level.color)
-                    .frame(width: 42, alignment: .leading)
+                    .lineLimit(1)
+                    .frame(width: 38, alignment: .leading)
 
                 Text(entry.component)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .frame(width: 124, alignment: .leading)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: 118, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.summary)
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     if let detail = entry.detail, !detail.isEmpty {
                         Text(detail)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
         }
     }
 }
@@ -723,21 +742,29 @@ private struct DiagnosticCheckRow: View {
             HStack(spacing: 8) {
                 Text(item.title)
                     .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer()
                 Text(item.value)
                     .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 82, alignment: .trailing)
                 Text(item.status.title)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(item.status.color)
+                    .lineLimit(1)
+                    .frame(width: 28, alignment: .trailing)
             }
 
             Text(item.detail)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
     }
 }
 
@@ -749,22 +776,30 @@ private struct InspectorRecoveryRow: View {
             HStack(spacing: 8) {
                 Text(row.serviceName)
                     .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer()
                 Text(row.providerLabel)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             Text("\(row.alias) · \(row.portSummary)")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             Text(row.actions.map(\.label).joined(separator: " / "))
                 .font(.system(size: 10))
                 .foregroundStyle(.blue)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
     }
 }
 
@@ -782,6 +817,8 @@ private struct InspectorKeyValueRow: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
+                .lineLimit(2)
+                .truncationMode(.middle)
         }
     }
 }

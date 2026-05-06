@@ -1,0 +1,6 @@
+{"file":".trellis/spec/swift-shell/index.md","reason":"Verify native macOS shell expectations and checklist compliance."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Check sidebar, logs, and preferences against page-specific UI patterns."}
+{"file":".trellis/spec/swift-shell/quality-guidelines.md","reason":"Check row stability, accessibility, and visual QA behavior."}
+{"file":".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md","reason":"Ensure no Swift UI polish moved domain state into the shell."}
+{"file":".trellis/spec/project/product-constraints.md","reason":"Ensure RelayDock remains a local-first port-forwarding workbench."}
+{"file":".trellis/spec/project/commit-guidelines.md","reason":"Check final commit message follows project documentation-style rules."}

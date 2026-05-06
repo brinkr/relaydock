@@ -17,12 +17,34 @@ WINDOW_LOOKUP_TIMEOUT_SECONDS="5"
 WINDOW_LOOKUP_DELAY_SECONDS="0.25"
 KEEP_OPEN="${RELAYDOCK_VISUAL_QA_KEEP_OPEN:-0}"
 APP_PID=""
+LAST_WINDOW_RECT=""
 
 mkdir -p "${OUTPUT_DIR}"
 
 fail() {
   echo "Error: $*" >&2
   exit 1
+}
+
+print_visual_qa_context() {
+  local window_rect="${1:-${LAST_WINDOW_RECT}}"
+
+  {
+    echo "RelayDock visual QA context:"
+    echo "  app bundle: ${APP_BUNDLE_DIR}"
+    echo "  bundle id: ${APP_BUNDLE_ID}"
+    if [[ -n "${APP_PID}" ]]; then
+      echo "  pid: ${APP_PID}"
+    else
+      echo "  pid: unknown"
+    fi
+    if [[ -n "${window_rect}" ]]; then
+      echo "  window rect: ${window_rect}"
+    else
+      echo "  window rect: unknown"
+    fi
+    echo "Keep-open rerun hint: RELAYDOCK_VISUAL_QA_KEEP_OPEN=1 scripts/visual-qa/relaydock-window-snapshot.sh"
+  } >&2
 }
 
 warn_accessibility_fallback() {
@@ -39,6 +61,7 @@ warn_accessibility_fallback() {
 fail_screen_recording() {
   local command_text="$1"
   local detail="$2"
+  local window_rect="${3:-}"
 
   {
     echo "Screen Recording permission is required for macOS screenshots in this environment."
@@ -46,6 +69,7 @@ fail_screen_recording() {
     echo "Grant Screen Recording to the terminal or automation host running this script in System Settings > Privacy & Security > Screen Recording, then rerun."
     echo "Command output: ${detail}"
   } >&2
+  print_visual_qa_context "${window_rect}"
 
   exit 1
 }
@@ -309,17 +333,14 @@ capture_window_lookup_fallback() {
   local detail="$2"
 
   {
-    echo "Warning: ${reason}"
-    echo "Falling back to a full-screen screenshot so visual QA still has an inspectable artifact."
+    echo "Window lookup failed: ${reason}"
     if [[ -n "${detail}" ]]; then
       echo "Window query output: ${detail}"
     fi
   } >&2
-
-  sleep 1
-  capture_fullscreen_screenshot
-  echo "${OUTPUT_PATH}"
-  exit 0
+  print_visual_qa_context
+  echo "Visual QA requires a RelayDock window rectangle; refusing to fall back to a full-screen screenshot." >&2
+  exit 1
 }
 
 capture_window_screenshot() {
@@ -327,6 +348,7 @@ capture_window_screenshot() {
   local capture_output=""
   local capture_status="0"
   local capture_command="screencapture -x -R ${window_rect} ${OUTPUT_PATH}"
+  LAST_WINDOW_RECT="${window_rect}"
 
   set +e
   capture_output="$(screencapture -x -R "${window_rect}" "${OUTPUT_PATH}" 2>&1)"
@@ -335,7 +357,7 @@ capture_window_screenshot() {
 
   if [[ "${capture_status}" != "0" ]]; then
     if [[ "${capture_output}" == *"could not create image from display"* ]] || [[ "${capture_output}" == *"could not create image from rect"* ]]; then
-      fail_screen_recording "${capture_command}" "${capture_output}"
+      fail_screen_recording "${capture_command}" "${capture_output}" "${window_rect}"
     fi
 
     fail "Failed command: ${capture_command}
@@ -343,6 +365,7 @@ Command output: ${capture_output}"
   fi
 
   if is_black_screenshot; then
+    print_visual_qa_context "${window_rect}"
     fail "Captured screenshot is all black; visual QA cannot verify the RelayDock window. Check Screen Recording permission and display/window placement."
   fi
 }
@@ -362,6 +385,7 @@ capture_fullscreen_screenshot() {
   fi
 
   if is_black_screenshot; then
+    print_visual_qa_context
     fail "Captured fallback screenshot is all black; visual QA cannot verify the RelayDock window. Check Screen Recording permission and display/window placement."
   fi
 }
@@ -434,5 +458,6 @@ if [[ -z "${WINDOW_RECT}" ]]; then
   capture_window_lookup_fallback "Failed to locate a RelayDock window via osascript or CoreGraphics within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s." ""
 fi
 
+LAST_WINDOW_RECT="${WINDOW_RECT}"
 capture_window_screenshot "${WINDOW_RECT}"
 echo "${OUTPUT_PATH}"

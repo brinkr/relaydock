@@ -6,7 +6,7 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer()
-                .frame(height: 14)
+                .frame(height: 10)
 
             SidebarGroupTitle("监控与工作流")
 
@@ -15,14 +15,14 @@ struct SidebarView: View {
             SidebarButton(section: .logsAndDiagnostics, selection: $selection)
 
             SidebarGroupTitle("系统")
-                .padding(.top, 18)
+                .padding(.top, 14)
 
             SidebarButton(section: .preferences, selection: $selection)
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .frame(width: 220)
+        .padding(.horizontal, 10)
+        .frame(width: 212)
         .background(RelayDockColor.sidebarBackground)
         .overlay(alignment: .trailing) {
             Divider()
@@ -41,8 +41,9 @@ private struct SidebarGroupTitle: View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .padding(.bottom, 5)
     }
 }
 
@@ -58,19 +59,29 @@ private struct SidebarButton: View {
         Button {
             selection = section
         } label: {
-            Label(section.title, systemImage: section.systemImage)
-                .labelStyle(.titleAndIcon)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .foregroundStyle(isSelected ? .primary : .secondary)
-                .background {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(isSelected ? RelayDockColor.sidebarSelection : Color.clear)
-                }
+            HStack(spacing: 8) {
+                Image(systemName: section.systemImage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .frame(width: 18, alignment: .center)
+
+                Text(section.title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 24)
+            .padding(.horizontal, 8)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isSelected ? RelayDockColor.sidebarSelection : Color.clear)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(section.title)
+        .accessibilityValue(isSelected ? "已选择" : "未选择")
     }
 }
