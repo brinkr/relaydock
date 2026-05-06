@@ -654,3 +654,36 @@ Moved run/recovery retry from demo snapshot mutation to a real JSON bridge comma
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Recover prototype UI style
+
+**Date**: 2026-05-06
+**Task**: Recover prototype UI style
+**Branch**: `main`
+
+### Summary
+
+Recovered RelayDock UI toward LocalPort prototype anchors and fixed visual QA window capture.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `02f4f32ef0c655ad42d0cb2848777d50576d9901` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
