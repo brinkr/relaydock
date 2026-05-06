@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/project/index.md", "reason": "Check implementation does not drift from project architecture or LocalPort boundary."}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Check shell, run/recovery, and registry layouts match required native patterns."}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Check visual QA, toolbar, density, and row stability requirements."}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Check Swift changes do not move domain state machines into ViewModels."}

@@ -170,20 +170,34 @@ private struct HostRuntimeGroup: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .frame(width: 16, height: 20)
+                .frame(width: 14, height: 18)
                 .accessibilityLabel(isCollapsed ? "展开主机" : "折叠主机")
 
-                Image(systemName: "desktopcomputer")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
+                ZStack(alignment: .bottomTrailing) {
+                    Image(systemName: "desktopcomputer")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(RelayDockColor.contentBackground)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5)
+                                .stroke(RelayDockColor.subtleBorder.opacity(0.7), lineWidth: 1)
+                        }
 
-                VStack(alignment: .leading, spacing: 3) {
+                    Circle()
+                        .fill(runningCount > 0 ? Color.green : Color.secondary.opacity(0.5))
+                        .frame(width: 6, height: 6)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
                     Text(host.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                     Text("\(host.endpoint) · 运行中 \(runningCount) 个 / 待恢复 \(recoverableCount) 个")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -191,39 +205,46 @@ private struct HostRuntimeGroup: View {
                 Spacer()
 
                 Text(host.providerSummary)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(width: 134, alignment: .trailing)
+                    .frame(width: 162, alignment: .trailing)
 
-                HStack(spacing: 8) {
-                    Button("恢复全部") {
+                HStack(spacing: 6) {
+                    Button {
                         host.rows
                             .filter { $0.state == .recoverable }
                             .forEach { onRecover($0.ruleId) }
+                    } label: {
+                        Label("恢复全部", systemImage: "play.fill")
                     }
                     .disabled(!host.rows.contains { $0.state == .recoverable })
 
                     Divider()
                         .frame(height: 16)
 
-                    Button("停止运行中", role: .destructive) {
+                    Button(role: .destructive) {
                         host.rows.compactMap(\.runtimeId).forEach(onStop)
+                    } label: {
+                        Label("停止运行中", systemImage: "stop.fill")
                     }
                     .disabled(!host.rows.contains { $0.runtimeId != nil })
 
-                    Button("清空待恢复", role: .destructive) {
+                    Button(role: .destructive) {
                         host.rows.compactMap(\.recoveryId).forEach(onClear)
+                    } label: {
+                        Label("清空待恢复", systemImage: "xmark.circle")
                     }
                     .disabled(!host.rows.contains { $0.recoveryId != nil })
                 }
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 232, alignment: .trailing)
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 246, alignment: .trailing)
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
             .background(RelayDockColor.groupHeaderBackground)
 
             Divider()
@@ -254,64 +275,76 @@ private struct RuntimeServiceRow: View {
     let onChangeLocalPort: (RunRecoveryRow) -> Void
 
     private enum Metrics {
-        static let contentIndent: CGFloat = 30
-        static let portWidth: CGFloat = 112
-        static let statusWidth: CGFloat = 74
-        static let telemetryWidth: CGFloat = 116
-        static let providerWidth: CGFloat = 126
-        static let actionWidth: CGFloat = 172
+        static let contentIndent: CGFloat = 38
+        static let mappingWidth: CGFloat = 236
+        static let statusWidth: CGFloat = 68
+        static let telemetryWidth: CGFloat = 132
+        static let providerWidth: CGFloat = 134
+        static let actionWidth: CGFloat = 188
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                ServiceGlyph(name: row.serviceName)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 9) {
+                ServiceGlyph(name: row.serviceName, state: row.state)
 
-                Text(row.serviceName)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
+                HStack(spacing: 7) {
+                    Text(row.serviceName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
 
-                Text(row.alias)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    Label(row.alias, systemImage: "arrow.up.forward.square")
+                        .font(.system(size: 10, design: .monospaced))
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(RelayDockColor.sidebarAccent.opacity(0.82))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
 
-                Text(row.providerLabel)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(width: Metrics.providerWidth, alignment: .trailing)
+                HStack(spacing: 4) {
+                    Image(systemName: providerSymbolName)
+                        .font(.system(size: 10, weight: .medium))
+                    Text(row.providerLabel)
+                        .lineLimit(1)
+                }
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: Metrics.providerWidth, alignment: .trailing)
             }
 
-            HStack(spacing: 10) {
-                Text(row.portSummary)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(width: Metrics.portWidth, alignment: .leading)
+            HStack(spacing: 8) {
+                PortMappingText(portSummary: row.portSummary)
+                    .frame(width: Metrics.mappingWidth, alignment: .leading)
 
-                Text(row.statusText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(statusColor)
-                    .lineLimit(1)
-                    .frame(width: Metrics.statusWidth, alignment: .leading)
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 6, height: 6)
+
+                    Text(row.statusText)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(statusColor)
+                        .lineLimit(1)
+                }
+                .frame(width: Metrics.statusWidth, alignment: .leading)
 
                 if let telemetry = row.telemetry, !telemetry.isEmpty {
                     Text(telemetry)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .frame(width: Metrics.telemetryWidth, alignment: .leading)
-                } else {
-                    Color.clear
-                        .frame(width: Metrics.telemetryWidth, height: 1)
+                } else if row.state != .recoverable {
+                    Spacer()
+                        .frame(width: Metrics.telemetryWidth)
                 }
 
                 if let error = row.error {
                     Text(error.summary)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundStyle(errorColor)
                         .lineLimit(1)
                 }
@@ -320,20 +353,24 @@ private struct RuntimeServiceRow: View {
 
                 HStack(spacing: 8) {
                     ForEach(row.actions, id: \.action) { action in
-                        Button(action.label, role: buttonRole(for: action.action)) {
+                        Button(role: buttonRole(for: action.action)) {
                             perform(action.action)
+                        } label: {
+                            Label(action.label, systemImage: systemImage(for: action.action))
                         }
                     }
                 }
-                .font(.system(size: 11, weight: .medium))
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 10, weight: .medium))
                 .frame(width: Metrics.actionWidth, alignment: .trailing)
             }
             .padding(.leading, Metrics.contentIndent)
             .buttonStyle(.borderless)
             .controlSize(.small)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 16)
+        .frame(minHeight: 48)
+        .padding(.vertical, 3)
         .background(RelayDockColor.contentBackground)
     }
 
@@ -354,12 +391,31 @@ private struct RuntimeServiceRow: View {
         row.state == .recoverable ? .secondary : .red
     }
 
+    private var providerSymbolName: String {
+        row.providerLabel.localizedCaseInsensitiveContains("tailscale") ? "point.3.connected.trianglepath.dotted" : "terminal"
+    }
+
     private func buttonRole(for action: RunRecoveryActionKind) -> ButtonRole? {
         switch action {
         case .stop, .clear:
             return .destructive
         case .recover, .retry, .changeLocalPort:
             return nil
+        }
+    }
+
+    private func systemImage(for action: RunRecoveryActionKind) -> String {
+        switch action {
+        case .recover:
+            "play.fill"
+        case .retry:
+            "arrow.clockwise"
+        case .changeLocalPort:
+            "slider.horizontal.3"
+        case .stop:
+            "stop.fill"
+        case .clear:
+            "xmark.circle"
         }
     }
 
@@ -465,20 +521,222 @@ private extension String {
 
 struct ServiceGlyph: View {
     let name: String
+    let state: RunRecoveryRowState
+
+    init(name: String, state: RunRecoveryRowState = .recoverable) {
+        self.name = name
+        self.state = state
+    }
 
     var body: some View {
-        Text(String(name.prefix(1)))
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.secondary)
-            .frame(width: 20, height: 20)
-            .background {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(RelayDockColor.controlBackground)
+        ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(glyphBackground)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(glyphBorder, lineWidth: 1)
+                }
+
+            Image(systemName: glyph.systemImage)
+                .font(.system(size: glyph.pointSize, weight: .semibold))
+                .foregroundStyle(glyphColor)
+                .frame(width: 20, height: 20)
+
+            if glyph.isFallback {
+                Text(String(name.prefix(1)).uppercased())
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(glyphColor)
+                    .frame(width: 20, height: 20)
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
-            }
-            .accessibilityHidden(true)
+        }
+        .frame(width: 20, height: 20)
+        .accessibilityHidden(true)
+    }
+
+    private var glyphColor: Color {
+        switch state {
+        case .connected:
+            RelayDockColor.sidebarAccent
+        case .reconnecting:
+            .orange
+        case .error:
+            .red
+        case .recoverable:
+            .secondary
+        }
+    }
+
+    private var glyphBackground: Color {
+        switch state {
+        case .connected:
+            Color.blue.opacity(0.08)
+        case .reconnecting:
+            Color.orange.opacity(0.10)
+        case .error:
+            Color.red.opacity(0.08)
+        case .recoverable:
+            RelayDockColor.controlBackground
+        }
+    }
+
+    private var glyphBorder: Color {
+        switch state {
+        case .connected:
+            Color.blue.opacity(0.18)
+        case .reconnecting:
+            Color.orange.opacity(0.18)
+        case .error:
+            Color.red.opacity(0.18)
+        case .recoverable:
+            RelayDockColor.subtleBorder.opacity(0.8)
+        }
+    }
+
+    private var glyph: ServiceGlyphKind {
+        let normalizedName = name.lowercased()
+
+        if normalizedName.contains("react")
+            || normalizedName.contains("next")
+            || normalizedName.contains("vue")
+            || normalizedName.contains("frontend")
+            || normalizedName.contains("web") {
+            return ServiceGlyphKind(systemImage: "globe", pointSize: 11)
+        }
+
+        if normalizedName.contains("api")
+            || normalizedName.contains("backend")
+            || normalizedName.contains("fastapi")
+            || normalizedName.contains("microservice") {
+            return ServiceGlyphKind(systemImage: "curlybraces", pointSize: 11)
+        }
+
+        if normalizedName.contains("postgres")
+            || normalizedName.contains("mysql")
+            || normalizedName.contains("redis")
+            || normalizedName.contains("elastic")
+            || normalizedName.contains("mongo")
+            || normalizedName.contains("database")
+            || normalizedName.contains("cache") {
+            return ServiceGlyphKind(systemImage: "cylinder.split.1x2", pointSize: 11)
+        }
+
+        if normalizedName.contains("rabbit")
+            || normalizedName.contains("queue")
+            || normalizedName.contains("mq")
+            || normalizedName.contains("kafka") {
+            return ServiceGlyphKind(systemImage: "arrow.left.arrow.right", pointSize: 10)
+        }
+
+        if normalizedName.contains("docker")
+            || normalizedName.contains("registry")
+            || normalizedName.contains("container") {
+            return ServiceGlyphKind(systemImage: "shippingbox", pointSize: 11)
+        }
+
+        if normalizedName.contains("adb") || normalizedName.contains("android") {
+            return ServiceGlyphKind(systemImage: "apps.iphone", pointSize: 11)
+        }
+
+        return ServiceGlyphKind(systemImage: "square", pointSize: 8, isFallback: true)
+    }
+}
+
+private struct ServiceGlyphKind {
+    let systemImage: String
+    let pointSize: CGFloat
+    var isFallback = false
+}
+
+private struct PortMappingText: View {
+    let portSummary: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text("本地")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            Text(localText)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.primary)
+
+            Text("->")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.tertiary)
+
+            Text("远程")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            Text(remoteText)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+        .accessibilityLabel("本地 \(localText) 到远程 \(remoteText)")
+    }
+
+    private var localText: String {
+        parsedMapping.local
+    }
+
+    private var remoteText: String {
+        parsedMapping.remote
+    }
+
+    private var parsedMapping: (local: String, remote: String) {
+        let normalized = portSummary.replacingOccurrences(of: "→", with: "->")
+
+        if normalized.contains("->") {
+            let parts = normalized.components(separatedBy: "->")
+            let local = sanitizedPortText(parts.first)
+            let remote = sanitizedRemoteText(parts.dropFirst().joined(separator: "->"))
+            return (local.isEmpty ? "待分配" : local, remote.isEmpty ? inferredRemoteText(from: local) : remote)
+        }
+
+        let ports = normalized
+            .components(separatedBy: "+")
+            .map { sanitizedPortText($0) }
+            .filter { !$0.isEmpty && $0 != "-" }
+
+        guard let firstPort = ports.first else {
+            return ("待分配", "待恢复")
+        }
+
+        let local = ports.joined(separator: " + ")
+        let remote = ports.count == 1 ? "127.0.0.1:\(firstPort)" : "\(ports.count) 个远程端口"
+        return (local, remote)
+    }
+
+    private func sanitizedPortText(_ value: String?) -> String {
+        guard let value else {
+            return ""
+        }
+
+        return value
+            .replacingOccurrences(of: "本地", with: "")
+            .replacingOccurrences(of: "远程", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func sanitizedRemoteText(_ value: String?) -> String {
+        let sanitized = sanitizedPortText(value)
+        guard !sanitized.isEmpty else {
+            return ""
+        }
+
+        if sanitized.allSatisfy(\.isNumber) {
+            return "127.0.0.1:\(sanitized)"
+        }
+
+        return sanitized
+    }
+
+    private func inferredRemoteText(from local: String) -> String {
+        guard local.allSatisfy(\.isNumber) else {
+            return "127.0.0.1"
+        }
+
+        return "127.0.0.1:\(local)"
     }
 }

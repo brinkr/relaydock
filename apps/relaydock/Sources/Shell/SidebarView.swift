@@ -6,7 +6,7 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer()
-                .frame(height: 10)
+                .frame(height: 58)
 
             SidebarGroupTitle("监控与工作流")
 
@@ -21,11 +21,12 @@ struct SidebarView: View {
 
             Spacer()
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .frame(width: 212)
         .background(RelayDockColor.sidebarBackground)
         .overlay(alignment: .trailing) {
             Divider()
+                .opacity(0.55)
         }
     }
 }
@@ -61,8 +62,8 @@ private struct SidebarButton: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: section.systemImage)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? RelayDockColor.sidebarAccent : Color.secondary.opacity(0.78))
                     .frame(width: 18, alignment: .center)
 
                 Text(section.title)
@@ -78,6 +79,13 @@ private struct SidebarButton: View {
             .background {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(isSelected ? RelayDockColor.sidebarSelection : Color.clear)
+            }
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(RelayDockColor.sidebarAccent)
+                        .frame(width: 2.5, height: 16)
+                }
             }
         }
         .buttonStyle(.plain)

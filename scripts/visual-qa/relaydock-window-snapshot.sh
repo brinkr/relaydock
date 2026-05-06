@@ -15,8 +15,10 @@ APP_LAUNCH_TIMEOUT_SECONDS="10"
 WINDOW_LOOKUP_TIMEOUT_SECONDS="5"
 WINDOW_LOOKUP_DELAY_SECONDS="0.25"
 KEEP_OPEN="${RELAYDOCK_VISUAL_QA_KEEP_OPEN:-0}"
+VISUAL_QA_FIXTURE="${RELAYDOCK_VISUAL_QA_FIXTURE:-prototype-density}"
 APP_PID=""
 LAST_WINDOW_RECT=""
+LAST_WINDOW_ID=""
 GENERATED_SCREENSHOTS=()
 SHELL_PAGES=(
   "run-recovery|运行与恢复"
@@ -56,6 +58,11 @@ print_visual_qa_context() {
       echo "  window rect: ${window_rect}"
     else
       echo "  window rect: unknown"
+    fi
+    if [[ -n "${LAST_WINDOW_ID}" ]]; then
+      echo "  window id: ${LAST_WINDOW_ID}"
+    else
+      echo "  window id: unknown"
     fi
     echo "Keep-open rerun hint: RELAYDOCK_VISUAL_QA_KEEP_OPEN=1 scripts/visual-qa/relaydock-window-snapshot.sh"
   } >&2
@@ -190,7 +197,7 @@ find_app_pid() {
 }
 
 launch_app_bundle() {
-  open -n "${APP_BUNDLE_DIR}" >/dev/null
+  open -n --env "RELAYDOCK_VISUAL_QA_FIXTURE=${VISUAL_QA_FIXTURE}" "${APP_BUNDLE_DIR}" >/dev/null
 
   local launch_started_at="${SECONDS}"
   while (( SECONDS - launch_started_at < APP_LAUNCH_TIMEOUT_SECONDS )); do
@@ -283,7 +290,7 @@ PYTHON
   printf '%s\n' "${query_output}"
 }
 
-read_window_rect_with_coregraphics() {
+read_window_info_with_coregraphics() {
   swift - "${APP_PID}" <<'SWIFT'
 import CoreGraphics
 import Foundation
@@ -306,6 +313,7 @@ for window in windows {
     }
 
     guard let bounds = window[kCGWindowBounds as String] as? [String: Any],
+          let windowNumber = window[kCGWindowNumber as String] as? Int,
           let width = bounds["Width"] as? Int,
           let height = bounds["Height"] as? Int,
           width > 0,
@@ -315,7 +323,7 @@ for window in windows {
 
     let xPosition = bounds["X"] as? Int ?? 0
     let yPosition = bounds["Y"] as? Int ?? 0
-    print("\(xPosition),\(yPosition),\(width),\(height)")
+    print("\(xPosition),\(yPosition),\(width),\(height),\(windowNumber)")
     exit(0)
 }
 
@@ -493,6 +501,7 @@ capture_window_lookup_fallback() {
 
 locate_window_rect() {
   local window_rect=""
+  local window_info=""
   local accessibility_denied_detail=""
   local lookup_started_at="${SECONDS}"
   local query_result=""
@@ -523,22 +532,35 @@ locate_window_rect() {
 
   if [[ -n "${accessibility_denied_detail}" ]]; then
     warn_accessibility_fallback "${accessibility_denied_detail}"
-    window_rect="$(read_window_rect_with_coregraphics || true)"
-    if [[ -z "${window_rect}" ]]; then
+    window_info="$(read_window_info_with_coregraphics || true)"
+    if [[ -z "${window_info}" ]]; then
       capture_window_lookup_fallback "Accessibility permission blocked the RelayDock window rectangle query." "${accessibility_denied_detail}"
     fi
   fi
 
-  if [[ -z "${window_rect}" ]]; then
-    window_rect="$(read_window_rect_with_coregraphics || true)"
+  if [[ -z "${window_info}" ]]; then
+    window_info="$(read_window_info_with_coregraphics || true)"
   fi
 
-  if [[ -z "${window_rect}" ]]; then
+  if [[ "${window_info}" =~ ^-?[0-9]+,-?[0-9]+,[0-9]+,[0-9]+,[0-9]+$ ]]; then
+    LAST_WINDOW_RECT="${window_info%,*}"
+    LAST_WINDOW_ID="${window_info##*,}"
+    printf '%s\n' "${LAST_WINDOW_RECT}"
+    return 0
+  fi
+
+  if [[ -n "${window_rect}" ]]; then
+    LAST_WINDOW_RECT="${window_rect}"
+    LAST_WINDOW_ID=""
+    printf '%s\n' "${window_rect}"
+    return 0
+  fi
+
+  if [[ -z "${window_info}" ]]; then
     capture_window_lookup_fallback "Failed to locate a RelayDock window via osascript or CoreGraphics within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s." ""
   fi
 
-  LAST_WINDOW_RECT="${window_rect}"
-  printf '%s\n' "${window_rect}"
+  capture_window_lookup_fallback "Failed to parse RelayDock CoreGraphics window info." "${window_info}"
 }
 
 capture_window_screenshot() {
@@ -546,11 +568,18 @@ capture_window_screenshot() {
   local output_path="$2"
   local capture_output=""
   local capture_status="0"
-  local capture_command="screencapture -x -R ${window_rect} ${output_path}"
+  local capture_command=""
   LAST_WINDOW_RECT="${window_rect}"
 
+  if [[ -z "${LAST_WINDOW_ID}" ]]; then
+    print_visual_qa_context "${window_rect}"
+    fail "Visual QA requires a CoreGraphics RelayDock window id; refusing rectangle capture because Retina coordinate conversion can capture the wrong app."
+  fi
+
+  capture_command="screencapture -x -l${LAST_WINDOW_ID} ${output_path}"
+
   set +e
-  capture_output="$(screencapture -x -R "${window_rect}" "${output_path}" 2>&1)"
+  capture_output="$(screencapture -x -l"${LAST_WINDOW_ID}" "${output_path}" 2>&1)"
   capture_status="$?"
   set -e
 
@@ -593,14 +622,16 @@ cleanup_stale_processes
 prepare_app_bundle
 launch_app_bundle
 activate_app_bundle
-WINDOW_RECT="$(locate_window_rect)"
+locate_window_rect >/dev/null
+WINDOW_RECT="${LAST_WINDOW_RECT}"
 
 for page_entry in "${SHELL_PAGES[@]}"; do
   IFS="|" read -r PAGE_SLUG PAGE_TITLE <<<"${page_entry}"
   OUTPUT_PATH="${OUTPUT_DIR}/relaydock-window-${TIMESTAMP}-${PAGE_SLUG}.png"
 
   select_shell_page "${PAGE_SLUG}" "${PAGE_TITLE}"
-  WINDOW_RECT="$(locate_window_rect)"
+  locate_window_rect >/dev/null
+  WINDOW_RECT="${LAST_WINDOW_RECT}"
   capture_window_screenshot "${WINDOW_RECT}" "${OUTPUT_PATH}"
   GENERATED_SCREENSHOTS+=("${OUTPUT_PATH}")
 done

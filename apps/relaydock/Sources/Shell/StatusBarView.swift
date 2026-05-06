@@ -33,10 +33,10 @@ struct StatusBarView: View {
                 )
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
-        .background(.bar)
+        .background(RelayDockColor.contentBackground)
     }
 }
 
@@ -49,6 +49,7 @@ private struct StatusPill: View {
         Label(title, systemImage: systemImage)
             .labelStyle(.titleAndIcon)
             .foregroundStyle(color)
+            .lineLimit(1)
             .accessibilityLabel(title)
     }
 }

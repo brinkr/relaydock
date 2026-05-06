@@ -4,6 +4,7 @@ struct RegistryView: View {
     let snapshot: RegistrySnapshotResult?
     @Binding var selectedHostId: String?
     let bridgeError: BridgeErrorInfo?
+    let shellCommand: RegistryShellCommand?
     let onSaveHost: (RegistryHostDraft) throws -> Void
     let onParseSshCommand: (String) throws -> ParseSshCommandResult
     let onSaveRule: (RegistryRuleDraft) throws -> Void
@@ -60,6 +61,13 @@ struct RegistryView: View {
                 activeSheet = nil
             }
         }
+        .onChange(of: shellCommand) { _, command in
+            guard command?.kind == .newHost else {
+                return
+            }
+
+            activeSheet = .newHost
+        }
     }
 
     private var hostList: some View {
@@ -112,7 +120,7 @@ struct RegistryView: View {
                 Spacer()
             }
         }
-        .frame(width: 244)
+        .frame(width: 224)
         .background(RelayDockColor.sidebarBackground)
     }
 }
@@ -291,8 +299,8 @@ private struct RegistryHostHeader: View {
             }
             .buttonStyle(.borderless)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .frame(height: 58)
         .background(RelayDockColor.contentBackground)
     }
 
@@ -306,7 +314,7 @@ private struct RegistryPresetsSection: View {
     let onNewPreset: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
                 RegistrySectionHeader("启动预设")
 
@@ -321,9 +329,21 @@ private struct RegistryPresetsSection: View {
                 .buttonStyle(.borderless)
             }
 
-            LazyVStack(spacing: 8) {
-                ForEach(presets) { preset in
+            LazyVStack(spacing: 0) {
+                ForEach(Array(presets.enumerated()), id: \.element.id) { index, preset in
                     RegistryPresetRow(preset: preset)
+                    if index < presets.count - 1 {
+                        Divider()
+                            .padding(.leading, 10)
+                    }
+                }
+            }
+            .background(RelayDockColor.listBandBackground)
+            .overlay {
+                VStack(spacing: 0) {
+                    Divider()
+                    Spacer()
+                    Divider()
                 }
             }
         }
@@ -334,14 +354,14 @@ private struct RegistryPresetRow: View {
     let preset: RegistryPreset
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Text(preset.name)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
 
                 if preset.derivedFrom != nil {
                     Text("派生")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -357,27 +377,19 @@ private struct RegistryPresetRow: View {
             ForEach(preset.rules, id: \.serviceName) { rule in
                 HStack(spacing: 6) {
                     Text(rule.serviceName)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                     Image(systemName: "arrow.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.tertiary)
                     Text(rule.targetLabel)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(RelayDockColor.controlBackground.opacity(0.56))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
-        }
     }
 }
 
@@ -427,7 +439,7 @@ private struct RegistryRulesSection: View {
                 RegistryRulesEmptyState()
             } else {
                 LazyVStack(spacing: 0) {
-                    ForEach(rules) { rule in
+                    ForEach(Array(rules.enumerated()), id: \.element.id) { index, rule in
                         RegistryRuleRow(
                             rule: rule,
                             onEditMapping: onEditMapping,
@@ -436,16 +448,19 @@ private struct RegistryRulesSection: View {
                             onRetryRule: onRetryRule,
                             onStopRule: onStopRule
                         )
-                        Divider()
+                        if index < rules.count - 1 {
+                            Divider()
+                                .padding(.leading, 38)
+                        }
                     }
                 }
-                .background {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(RelayDockColor.contentBackground)
-                }
+                .background(RelayDockColor.listBandBackground)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
+                    VStack(spacing: 0) {
+                        Divider()
+                        Spacer()
+                        Divider()
+                    }
                 }
             }
         }
@@ -462,17 +477,17 @@ private struct RegistryRuleRow: View {
 
     private enum Metrics {
         static let statusWidth: CGFloat = 76
-        static let actionWidth: CGFloat = 176
+        static let actionWidth: CGFloat = 164
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 9) {
             ServiceGlyph(name: rule.serviceName)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
                     Text(rule.serviceName)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .lineLimit(1)
 
                     Text(rule.alias)
@@ -481,7 +496,7 @@ private struct RegistryRuleRow: View {
                         .lineLimit(1)
                 }
 
-                Text("本地 \(rule.portSummary)  |  链路: \(rule.providerLabel)")
+                Text("本地 \(rule.portSummary)  |  \(rule.providerLabel)")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -496,11 +511,11 @@ private struct RegistryRuleRow: View {
                 .frame(width: Metrics.statusWidth, alignment: .leading)
 
             HStack(spacing: 8) {
-                Button("编辑映射") {
+                Button("映射") {
                     onEditMapping(rule)
                 }
 
-                Button("编辑规则") {
+                Button("规则") {
                     onEditRule(rule)
                 }
 
@@ -524,7 +539,8 @@ private struct RegistryRuleRow: View {
             .frame(width: Metrics.actionWidth, alignment: .trailing)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .frame(minHeight: 43)
+        .padding(.vertical, 3)
     }
 }
 

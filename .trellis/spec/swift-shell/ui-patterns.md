@@ -5,12 +5,12 @@
 Use a native desktop shell:
 
 - source-list style sidebar
-- top toolbar with contextual actions
+- content-pane top context bar with title, search, and contextual actions
 - bottom status bar
 - sheet/popover for focused edits
 - preferences window for settings
 
-Window-level toolbar actions should live in the AppKit `NSToolbar` owned by the window controller. Do not add a second SwiftUI-drawn toolbar band above the workspace just to host search or global commands.
+The window and traffic-light/titlebar behavior should remain AppKit-native, but the visible RelayDock context bar belongs to the SwiftUI content pane so it starts after the sidebar, matching the LocalPort prototype structure. Do not use an AppKit `NSToolbar` that spans across the sidebar when it makes the title/icon/search/action region drift from the prototype.
 
 Avoid:
 

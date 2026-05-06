@@ -4,6 +4,7 @@ import Foundation
 final class RelayDockShellViewModel: ObservableObject {
     @Published var selection: RelayDockSection = .runAndRecovery
     @Published var runRecoveryCollapseCommand: RunRecoveryCollapseCommand?
+    @Published var registryCommand: RegistryShellCommand?
     @Published private(set) var runRecoverySnapshot: RunRecoverySnapshotResult?
     @Published private(set) var isLoadingRunRecovery = false
     @Published private(set) var runRecoveryError: BridgeErrorInfo?
@@ -12,9 +13,14 @@ final class RelayDockShellViewModel: ObservableObject {
     @Published var selectedRegistryHostId: String?
 
     private let bridgeExecutor: RelayDockBridgeExecutor?
+    private let visualQAFixtures: RelayDockVisualQAFixtures?
 
-    init(bridgeExecutor: RelayDockBridgeExecutor? = RelayDockBridgeExecutor.defaultDevelopmentExecutor()) {
+    init(
+        bridgeExecutor: RelayDockBridgeExecutor? = RelayDockBridgeExecutor.defaultDevelopmentExecutor(),
+        visualQAFixtures: RelayDockVisualQAFixtures? = RelayDockVisualQAFixtures.fromEnvironment()
+    ) {
         self.bridgeExecutor = bridgeExecutor
+        self.visualQAFixtures = visualQAFixtures
     }
 
     var statusSummary: StatusSummary {
@@ -62,6 +68,11 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func loadRunRecoverySnapshot() {
+        if let visualQAFixtures {
+            applySnapshot(visualQAFixtures.runRecoverySnapshot)
+            return
+        }
+
         guard let bridgeExecutor else {
             runRecoveryError = BridgeErrorInfo(
                 code: .processFailed,
@@ -86,6 +97,10 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func startRule(ruleId: String) {
+        guard visualQAFixtures == nil else {
+            return
+        }
+
         guard let bridgeExecutor else {
             loadRunRecoverySnapshot()
             return
@@ -101,6 +116,10 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func recoverItem(ruleId: String) {
+        guard visualQAFixtures == nil else {
+            return
+        }
+
         guard let bridgeExecutor else {
             loadRunRecoverySnapshot()
             return
@@ -116,6 +135,10 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func stopRuntimeInstance(runtimeId: String) {
+        guard visualQAFixtures == nil else {
+            return
+        }
+
         guard let bridgeExecutor else {
             loadRunRecoverySnapshot()
             return
@@ -131,6 +154,10 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func retryRuntimeInstance(runtimeId: String) {
+        guard visualQAFixtures == nil else {
+            return
+        }
+
         guard let bridgeExecutor else {
             loadRunRecoverySnapshot()
             return
@@ -146,6 +173,10 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func clearRecoveryItem(recoveryId: String) {
+        guard visualQAFixtures == nil else {
+            return
+        }
+
         guard let bridgeExecutor else {
             loadRunRecoverySnapshot()
             return
@@ -161,6 +192,10 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func applyLocalPortOverride(ruleId: String, localPort: UInt16) {
+        guard visualQAFixtures == nil else {
+            return
+        }
+
         guard let bridgeExecutor else {
             loadRunRecoverySnapshot()
             return
@@ -260,6 +295,11 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func loadRegistrySnapshot() {
+        if let visualQAFixtures {
+            applyRegistrySnapshot(visualQAFixtures.registrySnapshot)
+            return
+        }
+
         guard let bridgeExecutor else {
             registryError = BridgeErrorInfo(
                 code: .processFailed,
@@ -392,6 +432,15 @@ struct RunRecoveryCollapseCommand: Identifiable, Equatable {
 enum RunRecoveryCollapseCommandKind: Equatable {
     case collapseAll
     case expandAll
+}
+
+struct RegistryShellCommand: Identifiable, Equatable {
+    let id = UUID()
+    var kind: RegistryShellCommandKind
+}
+
+enum RegistryShellCommandKind: Equatable {
+    case newHost
 }
 
 enum RelayDockSection: String, CaseIterable, Identifiable {
