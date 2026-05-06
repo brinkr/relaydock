@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUTPUT_DIR="${ROOT_DIR}/artifacts/visual-qa"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-OUTPUT_PATH="${OUTPUT_DIR}/relaydock-window-${TIMESTAMP}.png"
 BUILD_BINARY="${ROOT_DIR}/.build/debug/relaydock"
 BRIDGE_BINARY="${ROOT_DIR}/target/debug/relaydock-bridge"
 APP_BUNDLE_ID="dev.relaydock.visualqa"
@@ -18,12 +17,27 @@ WINDOW_LOOKUP_DELAY_SECONDS="0.25"
 KEEP_OPEN="${RELAYDOCK_VISUAL_QA_KEEP_OPEN:-0}"
 APP_PID=""
 LAST_WINDOW_RECT=""
+GENERATED_SCREENSHOTS=()
+SHELL_PAGES=(
+  "run-recovery|运行与恢复"
+  "registry|资源登记"
+  "logs-diagnostics|日志与诊断"
+  "preferences|偏好设置"
+)
 
 mkdir -p "${OUTPUT_DIR}"
 
 fail() {
   echo "Error: $*" >&2
   exit 1
+}
+
+fail_with_context() {
+  local message="$1"
+  local window_rect="${2:-${LAST_WINDOW_RECT}}"
+
+  print_visual_qa_context "${window_rect}"
+  fail "${message}"
 }
 
 print_visual_qa_context() {
@@ -52,8 +66,8 @@ warn_accessibility_fallback() {
 
   {
     echo "Warning: Accessibility permission is blocked for osascript window queries via System Events."
-    echo "Falling back to a full-screen screenshot because the RelayDock window rectangle cannot be read."
-    echo "To capture only the RelayDock window, grant Accessibility to the terminal or automation host running this script in System Settings > Privacy & Security > Accessibility."
+    echo "Trying CoreGraphics window lookup instead; the script will still fail if the RelayDock window rectangle cannot be read."
+    echo "Page navigation still requires Accessibility. Grant it to the terminal or automation host running this script in System Settings > Privacy & Security > Accessibility."
     echo "Command output: ${detail}"
   } >&2
 }
@@ -310,7 +324,9 @@ SWIFT
 }
 
 is_black_screenshot() {
-  python3 - "${OUTPUT_PATH}" <<'PYTHON'
+  local screenshot_path="$1"
+
+  python3 - "${screenshot_path}" <<'PYTHON'
 import sys
 from pathlib import Path
 from PIL import Image, ImageStat
@@ -328,6 +344,138 @@ sys.exit(1)
 PYTHON
 }
 
+select_shell_page() {
+  local page_slug="$1"
+  local page_title="$2"
+  local select_output=""
+  local select_status="0"
+
+  activate_app_bundle
+
+  set +e
+  select_output="$(
+    swift - "${APP_PID}" "${page_title}" <<'SWIFT' 2>&1
+import ApplicationServices
+import Foundation
+
+guard CommandLine.arguments.count == 3,
+      let appPid = pid_t(CommandLine.arguments[1]) else {
+    print("Invalid arguments.")
+    exit(1)
+}
+
+let pageTitle = CommandLine.arguments[2]
+let appElement = AXUIElementCreateApplication(appPid)
+let selectedValue = "已选择" as CFString
+let maxDepth = 8
+
+func attributeValue(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
+    var value: AnyObject?
+    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    return error == .success ? value : nil
+}
+
+func attributeString(_ element: AXUIElement, _ attribute: String) -> String? {
+    guard let value = attributeValue(element, attribute) else {
+        return nil
+    }
+
+    if let stringValue = value as? String {
+        return stringValue
+    }
+
+    return String(describing: value)
+}
+
+func childElements(_ element: AXUIElement) -> [AXUIElement] {
+    var result: [AXUIElement] = []
+
+    for attribute in [kAXWindowsAttribute, kAXChildrenAttribute, kAXVisibleChildrenAttribute] {
+        if let children = attributeValue(element, attribute) as? [AXUIElement] {
+            result.append(contentsOf: children)
+        }
+    }
+
+    return result
+}
+
+func actionNames(_ element: AXUIElement) -> [String] {
+    var actions: CFArray?
+    let error = AXUIElementCopyActionNames(element, &actions)
+    guard error == .success,
+          let actionList = actions as? [String] else {
+        return []
+    }
+
+    return actionList
+}
+
+func isSidebarButton(_ element: AXUIElement, selectedOnly: Bool) -> Bool {
+    guard attributeString(element, kAXRoleAttribute) == kAXButtonRole,
+          attributeString(element, kAXDescriptionAttribute) == pageTitle,
+          actionNames(element).contains(kAXPressAction) else {
+        return false
+    }
+
+    return !selectedOnly || attributeString(element, kAXValueAttribute) == selectedValue as String
+}
+
+func findSidebarButton(in element: AXUIElement, depth: Int = 0, selectedOnly: Bool = false) -> AXUIElement? {
+    if depth > maxDepth {
+        return nil
+    }
+
+    if isSidebarButton(element, selectedOnly: selectedOnly) {
+        return element
+    }
+
+    for child in childElements(element) {
+        if let found = findSidebarButton(in: child, depth: depth + 1, selectedOnly: selectedOnly) {
+            return found
+        }
+    }
+
+    return nil
+}
+
+if !AXIsProcessTrusted() {
+    print("ACCESSIBILITY_DENIED:macOS Accessibility permission is required to select RelayDock page '\(pageTitle)'.")
+    exit(2)
+}
+
+guard let pageElement = findSidebarButton(in: appElement) else {
+    print("PAGE_NOT_FOUND:No AXButton with AXDescription '\(pageTitle)' and AXPress action was found.")
+    exit(3)
+}
+
+let pressError = AXUIElementPerformAction(pageElement, kAXPressAction as CFString)
+guard pressError == .success else {
+    print("PAGE_PRESS_FAILED:AXPress returned \(pressError.rawValue) for '\(pageTitle)'.")
+    exit(4)
+}
+
+let deadline = Date().addingTimeInterval(2.0)
+repeat {
+    if findSidebarButton(in: appElement, selectedOnly: true) != nil {
+        print("selected:\(pageTitle)")
+        exit(0)
+    }
+
+    Thread.sleep(forTimeInterval: 0.1)
+} while Date() < deadline
+
+print("PAGE_SELECT_UNVERIFIED:Pressed '\(pageTitle)' but did not observe selected accessibility value '\(selectedValue)'.")
+exit(5)
+SWIFT
+  )"
+  select_status="$?"
+  set -e
+
+  if [[ "${select_status}" != "0" ]]; then
+    fail_with_context "Failed to select RelayDock page '${page_title}' (${page_slug}). ${select_output}"
+  fi
+}
+
 capture_window_lookup_fallback() {
   local reason="$1"
   local detail="$2"
@@ -343,15 +491,66 @@ capture_window_lookup_fallback() {
   exit 1
 }
 
+locate_window_rect() {
+  local window_rect=""
+  local accessibility_denied_detail=""
+  local lookup_started_at="${SECONDS}"
+  local query_result=""
+
+  while (( SECONDS - lookup_started_at < WINDOW_LOOKUP_TIMEOUT_SECONDS )); do
+    query_result="$(read_window_rect)"
+
+    if [[ "${query_result}" == ACCESSIBILITY_DENIED:* ]]; then
+      accessibility_denied_detail="${query_result#ACCESSIBILITY_DENIED:}"
+      break
+    fi
+
+    if [[ "${query_result}" == QUERY_FAILED:* ]]; then
+      capture_window_lookup_fallback "Window query failed via osascript." "${query_result#QUERY_FAILED:}"
+    fi
+
+    if [[ "${query_result}" == QUERY_TIMEOUT:* ]]; then
+      capture_window_lookup_fallback "Window query timed out via osascript." "${query_result#QUERY_TIMEOUT:}"
+    fi
+
+    if [[ "${query_result}" =~ ^-?[0-9]+,-?[0-9]+,[0-9]+,[0-9]+$ ]]; then
+      window_rect="${query_result}"
+      break
+    fi
+
+    sleep "${WINDOW_LOOKUP_DELAY_SECONDS}"
+  done
+
+  if [[ -n "${accessibility_denied_detail}" ]]; then
+    warn_accessibility_fallback "${accessibility_denied_detail}"
+    window_rect="$(read_window_rect_with_coregraphics || true)"
+    if [[ -z "${window_rect}" ]]; then
+      capture_window_lookup_fallback "Accessibility permission blocked the RelayDock window rectangle query." "${accessibility_denied_detail}"
+    fi
+  fi
+
+  if [[ -z "${window_rect}" ]]; then
+    window_rect="$(read_window_rect_with_coregraphics || true)"
+  fi
+
+  if [[ -z "${window_rect}" ]]; then
+    capture_window_lookup_fallback "Failed to locate a RelayDock window via osascript or CoreGraphics within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s." ""
+  fi
+
+  LAST_WINDOW_RECT="${window_rect}"
+  printf '%s\n' "${window_rect}"
+}
+
 capture_window_screenshot() {
   local window_rect="$1"
+  local output_path="$2"
   local capture_output=""
   local capture_status="0"
-  local capture_command="screencapture -x -R ${window_rect} ${OUTPUT_PATH}"
+  local capture_command="screencapture -x -R ${window_rect} ${output_path}"
   LAST_WINDOW_RECT="${window_rect}"
 
   set +e
-  capture_output="$(screencapture -x -R "${window_rect}" "${OUTPUT_PATH}" 2>&1)"
+  capture_output="$(screencapture -x -R "${window_rect}" "${output_path}" 2>&1)"
   capture_status="$?"
   set -e
 
@@ -364,29 +563,9 @@ capture_window_screenshot() {
 Command output: ${capture_output}"
   fi
 
-  if is_black_screenshot; then
+  if is_black_screenshot "${output_path}"; then
     print_visual_qa_context "${window_rect}"
     fail "Captured screenshot is all black; visual QA cannot verify the RelayDock window. Check Screen Recording permission and display/window placement."
-  fi
-}
-
-capture_fullscreen_screenshot() {
-  local capture_output=""
-  local capture_status="0"
-  local capture_command="screencapture -x ${OUTPUT_PATH}"
-
-  set +e
-  capture_output="$(screencapture -x "${OUTPUT_PATH}" 2>&1)"
-  capture_status="$?"
-  set -e
-
-  if [[ "${capture_status}" != "0" ]]; then
-    fail_screen_recording "${capture_command}" "${capture_output}"
-  fi
-
-  if is_black_screenshot; then
-    print_visual_qa_context
-    fail "Captured fallback screenshot is all black; visual QA cannot verify the RelayDock window. Check Screen Recording permission and display/window placement."
   fi
 }
 
@@ -414,50 +593,16 @@ cleanup_stale_processes
 prepare_app_bundle
 launch_app_bundle
 activate_app_bundle
+WINDOW_RECT="$(locate_window_rect)"
 
-WINDOW_RECT=""
-ACCESSIBILITY_DENIED_DETAIL=""
-LOOKUP_STARTED_AT="${SECONDS}"
-while (( SECONDS - LOOKUP_STARTED_AT < WINDOW_LOOKUP_TIMEOUT_SECONDS )); do
-  QUERY_RESULT="$(read_window_rect)"
+for page_entry in "${SHELL_PAGES[@]}"; do
+  IFS="|" read -r PAGE_SLUG PAGE_TITLE <<<"${page_entry}"
+  OUTPUT_PATH="${OUTPUT_DIR}/relaydock-window-${TIMESTAMP}-${PAGE_SLUG}.png"
 
-  if [[ "${QUERY_RESULT}" == ACCESSIBILITY_DENIED:* ]]; then
-    ACCESSIBILITY_DENIED_DETAIL="${QUERY_RESULT#ACCESSIBILITY_DENIED:}"
-    break
-  fi
-
-  if [[ "${QUERY_RESULT}" == QUERY_FAILED:* ]]; then
-    capture_window_lookup_fallback "Window query failed via osascript." "${QUERY_RESULT#QUERY_FAILED:}"
-  fi
-
-  if [[ "${QUERY_RESULT}" == QUERY_TIMEOUT:* ]]; then
-    capture_window_lookup_fallback "Window query timed out via osascript." "${QUERY_RESULT#QUERY_TIMEOUT:}"
-  fi
-
-  if [[ "${QUERY_RESULT}" =~ ^-?[0-9]+,-?[0-9]+,[0-9]+,[0-9]+$ ]]; then
-    WINDOW_RECT="${QUERY_RESULT}"
-    break
-  fi
-
-  sleep "${WINDOW_LOOKUP_DELAY_SECONDS}"
+  select_shell_page "${PAGE_SLUG}" "${PAGE_TITLE}"
+  WINDOW_RECT="$(locate_window_rect)"
+  capture_window_screenshot "${WINDOW_RECT}" "${OUTPUT_PATH}"
+  GENERATED_SCREENSHOTS+=("${OUTPUT_PATH}")
 done
 
-if [[ -n "${ACCESSIBILITY_DENIED_DETAIL}" ]]; then
-  warn_accessibility_fallback "${ACCESSIBILITY_DENIED_DETAIL}"
-  WINDOW_RECT="$(read_window_rect_with_coregraphics || true)"
-  if [[ -z "${WINDOW_RECT}" ]]; then
-    capture_window_lookup_fallback "Accessibility permission blocked the RelayDock window rectangle query." "${ACCESSIBILITY_DENIED_DETAIL}"
-  fi
-fi
-
-if [[ -z "${WINDOW_RECT}" ]]; then
-  WINDOW_RECT="$(read_window_rect_with_coregraphics || true)"
-fi
-
-if [[ -z "${WINDOW_RECT}" ]]; then
-  capture_window_lookup_fallback "Failed to locate a RelayDock window via osascript or CoreGraphics within ${WINDOW_LOOKUP_TIMEOUT_SECONDS}s." ""
-fi
-
-LAST_WINDOW_RECT="${WINDOW_RECT}"
-capture_window_screenshot "${WINDOW_RECT}"
-echo "${OUTPUT_PATH}"
+printf '%s\n' "${GENERATED_SCREENSHOTS[@]}"

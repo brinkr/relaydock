@@ -1,0 +1,5 @@
+{"file":".trellis/spec/swift-shell/index.md","reason":"Swift shell checklist and native macOS visual QA expectations."}
+{"file":".trellis/spec/swift-shell/quality-guidelines.md","reason":"Screenshot automation requirements, strict failure behavior, and AppKit toolbar visual checks."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Primary page structure that visual QA must cover."}
+{"file":".trellis/spec/project/product-constraints.md","reason":"Ensure visual QA coverage does not introduce product or data-source drift."}
+{"file":".trellis/spec/project/commit-guidelines.md","reason":"Final commit must document reason, purpose, scope, and boundary."}

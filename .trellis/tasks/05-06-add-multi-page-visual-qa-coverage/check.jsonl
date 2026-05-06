@@ -1,0 +1,5 @@
+{"file":".trellis/spec/swift-shell/index.md","reason":"Verify Swift shell task quality and native macOS expectations."}
+{"file":".trellis/spec/swift-shell/quality-guidelines.md","reason":"Check multi-page visual QA behavior against strict screenshot rules."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Ensure all primary shell pages remain covered and unchanged in product semantics."}
+{"file":".trellis/spec/project/product-constraints.md","reason":"Confirm no product scope or data-source drift was introduced."}
+{"file":".trellis/spec/project/commit-guidelines.md","reason":"Check the final commit message follows repository rules."}
