@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-05-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~557 | Active |
+| `journal-1.md` | ~590 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-05-06 | Add multi-page visual QA coverage | `3d623f0` | `main` |
 | 16 | 2026-05-06 | Continue Gemini UI refinement | `014504a` | `main` |
 | 15 | 2026-05-06 | Refine RelayDock macOS UI density | `f3ba40a` | `main` |
 | 14 | 2026-05-05 | Add observable stoppable runtime lifecycle | `6f0ccbd` | `main` |

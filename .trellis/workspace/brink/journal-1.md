@@ -555,3 +555,36 @@ Completed the remaining reasonable Gemini UI feedback: tightened the main source
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Add multi-page visual QA coverage
+
+**Date**: 2026-05-06
+**Task**: Add multi-page visual QA coverage
+**Branch**: `main`
+
+### Summary
+
+Added strict visual QA coverage for all four primary RelayDock shell pages in one app launch. The script now selects each sidebar page through Accessibility, captures page-specific window screenshots, and preserves hard failures for missing window rects, black screenshots, and page-selection failures. Updated Swift shell quality guidance to make multi-page visual QA required for future UI changes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3d623f0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
