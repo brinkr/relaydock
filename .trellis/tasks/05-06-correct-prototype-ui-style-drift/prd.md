@@ -54,6 +54,7 @@ Bring RelayDock's visible shell back toward the LocalPort prototype where the cu
 ## Research References
 
 - `research/localport-style-audit.md`
+- `research/gemini-batch-ui-review.md`
 
 ## Technical Notes
 
@@ -77,4 +78,5 @@ Bring RelayDock's visible shell back toward the LocalPort prototype where the cu
 - Gemini frontend expert patch and full row-review passes timed out and produced no usable advice.
 - Gemini frontend expert topbar/sidebar analyze pass completed and mostly confirmed the dirty patch: 220pt sidebar, 52pt topbar, 30pt sidebar rows, 16pt topbar padding, and regular unselected sidebar icons. Its stale 212pt sidebar note was verified against current code and ignored.
 - Follow-up Gemini frontend expert calls on May 6 were attempted with narrower payloads. They failed with an absolute-path input error, a model timeout, invalid JSON, and a non-action/non-final model response. No additional Gemini patch was applied from those failed calls.
+- After the MCP repair, batched Gemini calls were run by shell/page. The results are recorded in `research/gemini-batch-ui-review.md`; scoped `analyze`, `patch`, and `repair` now work, but broad multi-page patch requests with multiple screenshots still time out.
 - Remaining known visual difference: RelayDock still renders somewhat larger/heavier than the browser prototype because it is a native macOS app with the current 1120x760 default window and SwiftUI system typography. This task only fixed the red-box drift points; broader information-density normalization should be a separate task if desired.
