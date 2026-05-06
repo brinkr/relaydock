@@ -588,3 +588,36 @@ Added strict visual QA coverage for all four primary RelayDock shell pages in on
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Implement real recovery actions
+
+**Date**: 2026-05-06
+**Task**: Implement real recovery actions
+**Branch**: `main`
+
+### Summary
+
+Moved run/recovery recover, clear, and temporary local-port override actions from demo snapshot commands to real JSON bridge commands backed by Rust-owned runtime and recovery persistence. Added store-backed Rust transitions, OpenSSH recovered-binding launch support, Swift bridge/view-model routing, focused tests for pid metadata, recovered bindings, local override persistence boundaries, and updated provider/process spec guidance.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e7c4ce` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
