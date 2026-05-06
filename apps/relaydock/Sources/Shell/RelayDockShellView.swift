@@ -44,7 +44,7 @@ struct RelayDockShellView: View {
                 bridgeError: viewModel.runRecoveryError,
                 collapseCommand: viewModel.runRecoveryCollapseCommand,
                 onRecover: { ruleId in
-                    viewModel.startRule(ruleId: ruleId)
+                    viewModel.recoverItem(ruleId: ruleId)
                 },
                 onRetry: { runtimeId in
                     viewModel.retryDemoRuntime(runtimeId: runtimeId)
@@ -53,10 +53,10 @@ struct RelayDockShellView: View {
                     viewModel.stopRuntimeInstance(runtimeId: runtimeId)
                 },
                 onClear: { recoveryId in
-                    viewModel.clearDemoRecoveryItem(recoveryId: recoveryId)
+                    viewModel.clearRecoveryItem(recoveryId: recoveryId)
                 },
                 onChangeLocalPort: { ruleId, localPort in
-                    viewModel.applyDemoLocalPortOverride(ruleId: ruleId, localPort: localPort)
+                    viewModel.applyLocalPortOverride(ruleId: ruleId, localPort: localPort)
                 },
                 onReload: {
                     viewModel.loadRunRecoverySnapshot()
@@ -130,7 +130,7 @@ private extension RelayDockShellView {
         case .stopAll:
             viewModel.stopAllRunningRuntimes()
         case .clearRecovery:
-            viewModel.clearAllDemoRecoveryItems()
+            viewModel.clearAllRecoveryItems()
         }
     }
 }

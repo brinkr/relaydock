@@ -9,6 +9,9 @@ enum RelayDockBridgeCommand: Encodable {
     case saveRegistryRule(SaveRegistryRuleCommand)
     case startRule(StartRuleCommand)
     case stopRuntimeInstance(StopRuntimeInstanceCommand)
+    case recoverItem(RecoverItemCommand)
+    case applyLocalPortOverride(ApplyLocalPortOverrideCommand)
+    case clearRecoveryItem(ClearRecoveryItemCommand)
     case startDemoRule(DemoRuleActionCommand)
     case retryDemoRuntime(DemoRuntimeActionCommand)
     case stopDemoRuntime(DemoRuntimeActionCommand)
@@ -56,6 +59,16 @@ enum RelayDockBridgeCommand: Encodable {
         case let .stopRuntimeInstance(command):
             try container.encode("stop_runtime_instance", forKey: .command)
             try container.encode(command.runtimeId, forKey: .runtimeId)
+        case let .recoverItem(command):
+            try container.encode("recover_item", forKey: .command)
+            try container.encode(command.ruleId, forKey: .ruleId)
+        case let .applyLocalPortOverride(command):
+            try container.encode("apply_local_port_override", forKey: .command)
+            try container.encode(command.ruleId, forKey: .ruleId)
+            try container.encode(command.localPort, forKey: .localPort)
+        case let .clearRecoveryItem(command):
+            try container.encode("clear_recovery_item", forKey: .command)
+            try container.encode(command.recoveryId, forKey: .recoveryId)
         case let .startDemoRule(command):
             try container.encode("start_demo_rule", forKey: .command)
             try container.encode(command.ruleId, forKey: .ruleId)
@@ -125,6 +138,19 @@ struct StartRuleCommand: Codable, Equatable {
 
 struct StopRuntimeInstanceCommand: Codable, Equatable {
     var runtimeId: String
+}
+
+struct RecoverItemCommand: Codable, Equatable {
+    var ruleId: String
+}
+
+struct ApplyLocalPortOverrideCommand: Codable, Equatable {
+    var ruleId: String
+    var localPort: UInt16
+}
+
+struct ClearRecoveryItemCommand: Codable, Equatable {
+    var recoveryId: String
 }
 
 struct RegistryHostDraft: Codable, Equatable {

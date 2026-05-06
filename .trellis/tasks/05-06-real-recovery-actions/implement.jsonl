@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/05-06-real-recovery-actions/prd.md","reason":"Task-specific requirements, acceptance criteria, and explicit scope boundaries for real recovery actions."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Bridge command contracts, JSON sidecar boundaries, and existing start/stop recovery transition guidance."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"RuntimeInstance, RecoveryItem, and LocalPortOverride ownership rules."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"Provider process lifecycle, pid-backed MVP boundary, and recovery hook expectations."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Run/recovery action labels and Swift shell responsibilities."}

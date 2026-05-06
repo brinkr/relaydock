@@ -10,7 +10,7 @@ use crate::providers::{
     SystemPidProcessController,
 };
 use crate::runtime::{
-    uptime_seconds_since, ProviderProcessKind, ProviderProcessRecord, RuntimeStatus,
+    uptime_seconds_since, OverrideReason, ProviderProcessKind, ProviderProcessRecord, RuntimeStatus,
 };
 use crate::ssh_import::{parse_ssh_command, ParseSshCommandCommand, ParseSshCommandResult};
 use crate::storage::{
@@ -35,6 +35,9 @@ pub enum BridgeCommand {
     SaveRegistryRule(SaveRegistryRuleCommand),
     StartRule(StartRuleCommand),
     StopRuntimeInstance(StopRuntimeInstanceCommand),
+    RecoverItem(RecoverItemCommand),
+    ApplyLocalPortOverride(ApplyLocalPortOverrideCommand),
+    ClearRecoveryItem(ClearRecoveryItemCommand),
     StartDemoRule(DemoRuleActionCommand),
     RetryDemoRuntime(DemoRuntimeActionCommand),
     StopDemoRuntime(DemoRuntimeActionCommand),
@@ -109,6 +112,22 @@ pub struct StartRuleCommand {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StopRuntimeInstanceCommand {
     pub runtime_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoverItemCommand {
+    pub rule_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplyLocalPortOverrideCommand {
+    pub rule_id: String,
+    pub local_port: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClearRecoveryItemCommand {
+    pub recovery_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -613,6 +632,15 @@ pub fn execute_bridge_command(
         BridgeCommand::StopRuntimeInstance(command) => Ok(
             BridgeCommandResult::RunRecoverySnapshot(stop_runtime_instance(command)?),
         ),
+        BridgeCommand::RecoverItem(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
+            recover_item(command)?,
+        )),
+        BridgeCommand::ApplyLocalPortOverride(command) => Ok(
+            BridgeCommandResult::RunRecoverySnapshot(apply_local_port_override(command)?),
+        ),
+        BridgeCommand::ClearRecoveryItem(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
+            clear_recovery_item(command)?,
+        )),
         BridgeCommand::StartDemoRule(command) => Ok(BridgeCommandResult::RunRecoverySnapshot(
             start_demo_rule(command.snapshot, &command.rule_id),
         )),
@@ -737,6 +765,54 @@ pub fn stop_runtime_instance(
     {
         let mut store = open_registry_store()?;
         stop_runtime_instance_in_store(&mut store, command, SystemPidProcessController)
+    }
+}
+
+pub fn recover_item(
+    command: RecoverItemCommand,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        recover_item_in_store(&mut store, command, OpenSshProvider::system())
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        recover_item_in_store(&mut store, command, OpenSshProvider::system())
+    }
+}
+
+pub fn apply_local_port_override(
+    command: ApplyLocalPortOverrideCommand,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        apply_local_port_override_in_store(&mut store, command, OpenSshProvider::system())
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        apply_local_port_override_in_store(&mut store, command, OpenSshProvider::system())
+    }
+}
+
+pub fn clear_recovery_item(
+    command: ClearRecoveryItemCommand,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    #[cfg(test)]
+    {
+        let mut store = RelayDockStore::in_memory().map_err(storage_error_to_bridge)?;
+        clear_recovery_item_in_store(&mut store, command)
+    }
+
+    #[cfg(not(test))]
+    {
+        let mut store = open_registry_store()?;
+        clear_recovery_item_in_store(&mut store, command)
     }
 }
 
@@ -1725,6 +1801,291 @@ fn stop_runtime_instance_in_store(
     ))
 }
 
+fn recover_item_in_store<L>(
+    store: &mut RelayDockStore,
+    command: RecoverItemCommand,
+    provider: OpenSshProvider<L>,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>>
+where
+    L: ProviderProcessLauncher,
+{
+    recover_item_in_store_with_override(store, command.rule_id, None, provider)
+}
+
+fn apply_local_port_override_in_store<L>(
+    store: &mut RelayDockStore,
+    command: ApplyLocalPortOverrideCommand,
+    provider: OpenSshProvider<L>,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>>
+where
+    L: ProviderProcessLauncher,
+{
+    let local_port = command.local_port;
+    if local_port == 0 {
+        return Err(Box::new(recovery_action_error(
+            "本地端口无效",
+            Some("local_port must be between 1 and 65535.".to_string()),
+            Some(command.rule_id.trim().to_string()),
+            None,
+            Some(recovery_id_for_rule(command.rule_id.trim())),
+        )));
+    }
+
+    recover_item_in_store_with_override(store, command.rule_id, Some(local_port), provider)
+}
+
+fn recover_item_in_store_with_override<L>(
+    store: &mut RelayDockStore,
+    rule_id: String,
+    local_port_override: Option<u16>,
+    provider: OpenSshProvider<L>,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>>
+where
+    L: ProviderProcessLauncher,
+{
+    let configuration = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let rule_id = RuleId::from(rule_id.trim().to_string());
+
+    if rule_id.as_str().is_empty() {
+        return Err(Box::new(recovery_action_error(
+            "缺少要恢复的规则",
+            Some("rule_id must not be empty.".to_string()),
+            None,
+            None,
+            None,
+        )));
+    }
+
+    let (host, rule, provider_target) = find_start_rule_context(&configuration, &rule_id)?;
+    let mut runtime_snapshot = store
+        .load_runtime_snapshot()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let mut recovery_collection = store
+        .load_recovery_collection()
+        .map_err(storage_error_to_bridge)?;
+    let recovery_index = recovery_collection.items.iter().position(|item| {
+        item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id
+    });
+    let runtime_instance_id = RuntimeInstanceId::from(format!("runtime-{rule_id}"));
+    let recovery_id = recovery_id_for_rule(rule_id.as_str());
+
+    if runtime_snapshot
+        .instances
+        .iter()
+        .any(|instance| instance.id == runtime_instance_id || instance.rule_id == rule_id)
+    {
+        return Err(Box::new(recovery_action_error(
+            "规则已经在运行中",
+            Some(format!("rule_id={rule_id}")),
+            Some(rule_id.to_string()),
+            Some(runtime_instance_id.to_string()),
+            Some(recovery_id),
+        )));
+    }
+
+    let mut local_bindings = recovery_index
+        .and_then(|index| {
+            recovery_collection.items.get(index).map(|item| {
+                item.clone()
+                    .recover(runtime_instance_id.clone())
+                    .local_bindings
+            })
+        })
+        .unwrap_or_else(|| local_bindings_from_rule(rule));
+    let original_port = local_bindings.first().map(|binding| binding.local_port);
+
+    if let Some(local_port) = local_port_override {
+        let Some(binding) = local_bindings.first_mut() else {
+            return Err(Box::new(recovery_action_error(
+                "规则没有可覆盖的本地端口",
+                Some(format!("rule_id={rule_id}")),
+                Some(rule_id.to_string()),
+                None,
+                Some(recovery_id),
+            )));
+        };
+
+        binding.local_port = local_port;
+        binding.temporary_override = true;
+    }
+
+    let mut handle = provider
+        .start_rule_with_bindings(
+            host,
+            rule,
+            provider_target,
+            runtime_instance_id.clone(),
+            local_bindings,
+        )
+        .map_err(provider_error_to_bridge)?;
+    let observation = handle
+        .observe_status(SystemTime::now())
+        .map_err(provider_error_to_bridge)?;
+
+    let mut runtime_instance = observation.runtime_instance;
+    if let Some(diagnostic) = observation.diagnostic {
+        let error = BridgeError::provider_failure(&diagnostic);
+        return Ok(run_recovery_snapshot_from_store_snapshots(
+            &configuration,
+            &runtime_snapshot,
+            &recovery_collection,
+            Some(RunRecoveryActionStatus {
+                ok: false,
+                message: error.summary.clone(),
+                affected_rule_id: Some(rule_id.to_string()),
+                affected_runtime_id: Some(runtime_instance_id.to_string()),
+                affected_recovery_id: Some(recovery_id),
+                error: Some(error),
+            }),
+        ));
+    }
+
+    let pid = match observation.status {
+        ProviderProcessStatus::Running { pid: Some(pid) } => pid,
+        ProviderProcessStatus::Running { pid: None } => {
+            return Err(Box::new(recovery_action_error(
+                "运行实例缺少 provider 进程信息",
+                Some(format!(
+                    "rule_id={rule_id}, runtime_id={runtime_instance_id}; this sidecar cannot persist a recovered runtime without provider pid metadata."
+                )),
+                Some(rule_id.to_string()),
+                Some(runtime_instance_id.to_string()),
+                Some(recovery_id),
+            )));
+        }
+        ProviderProcessStatus::Exited { .. } => {
+            return Err(Box::new(recovery_action_error(
+                "OpenSSH 进程在恢复完成前退出",
+                Some(format!(
+                    "rule_id={rule_id}, runtime_id={runtime_instance_id}"
+                )),
+                Some(rule_id.to_string()),
+                Some(runtime_instance_id.to_string()),
+                Some(recovery_id),
+            )));
+        }
+    };
+
+    if recovery_index.is_some() {
+        recovery_collection.items.retain(|item| {
+            !(item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id)
+        });
+    }
+
+    if let (Some(original_port), Some(local_port)) = (original_port, local_port_override) {
+        let override_record = crate::runtime::LocalPortOverride {
+            runtime_instance_id: runtime_instance_id.clone(),
+            original_port,
+            effective_port: local_port,
+            reason: OverrideReason::Manual,
+            persisted: false,
+        };
+        upsert_local_port_override(&mut runtime_snapshot, override_record);
+
+        if let Some(binding) = runtime_instance
+            .local_bindings
+            .iter_mut()
+            .find(|binding| binding.local_port == local_port)
+        {
+            binding.temporary_override = true;
+        }
+    }
+
+    let process_record = ProviderProcessRecord {
+        runtime_instance_id: runtime_instance_id.clone(),
+        provider_kind: ProviderProcessKind::OpenSsh,
+        pid,
+        command_summary: handle.command().display_command(),
+        target_label: handle.target_label().to_string(),
+        started_at: runtime_instance.started_at,
+        last_observed_at: SystemTime::now(),
+    };
+    let last_action = Some(RunRecoveryActionStatus {
+        ok: true,
+        message: if local_port_override.is_some() {
+            "已用临时本地端口恢复规则".to_string()
+        } else {
+            "已恢复规则".to_string()
+        },
+        affected_rule_id: Some(rule_id.to_string()),
+        affected_runtime_id: Some(runtime_instance_id.to_string()),
+        affected_recovery_id: Some(recovery_id_for_rule(rule_id.as_str())),
+        error: None,
+    });
+
+    upsert_runtime_instance(&mut runtime_snapshot, runtime_instance);
+    upsert_provider_process_record(&mut runtime_snapshot, process_record);
+
+    store
+        .save_runtime_snapshot(&runtime_snapshot)
+        .map_err(storage_error_to_bridge)?;
+    store
+        .save_recovery_collection(&recovery_collection)
+        .map_err(storage_error_to_bridge)?;
+
+    Ok(run_recovery_snapshot_from_store_snapshots(
+        &configuration,
+        &runtime_snapshot,
+        &recovery_collection,
+        last_action,
+    ))
+}
+
+fn clear_recovery_item_in_store(
+    store: &mut RelayDockStore,
+    command: ClearRecoveryItemCommand,
+) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
+    let configuration = store
+        .load_configuration()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+    let rule_id = rule_id_from_recovery_id(&command.recovery_id)?;
+    let (_, rule, _) = find_start_rule_context(&configuration, &rule_id)?;
+    let mut recovery_collection = store
+        .load_recovery_collection()
+        .map_err(storage_error_to_bridge)?;
+    let persisted = recovery_collection
+        .items
+        .iter()
+        .any(|item| item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id);
+
+    if persisted {
+        recovery_collection.items.retain(|item| {
+            !(item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id)
+        });
+        store
+            .save_recovery_collection(&recovery_collection)
+            .map_err(storage_error_to_bridge)?;
+    }
+
+    let runtime_snapshot = store
+        .load_runtime_snapshot()
+        .map_err(storage_error_to_bridge)?
+        .unwrap_or_default();
+
+    Ok(run_recovery_snapshot_from_store_snapshots(
+        &configuration,
+        &runtime_snapshot,
+        &recovery_collection,
+        Some(RunRecoveryActionStatus {
+            ok: true,
+            message: if persisted {
+                "已清除待恢复项".to_string()
+            } else {
+                "已保留资源登记规则".to_string()
+            },
+            affected_rule_id: Some(rule_id.to_string()),
+            affected_runtime_id: None,
+            affected_recovery_id: Some(command.recovery_id),
+            error: None,
+        }),
+    ))
+}
+
 fn find_start_rule_context<'a>(
     configuration: &'a ConfigurationSnapshot,
     rule_id: &RuleId,
@@ -1805,6 +2166,24 @@ fn remove_provider_process_record(
         .retain(|process| process.runtime_instance_id != *runtime_instance_id);
 }
 
+fn upsert_local_port_override(
+    runtime_snapshot: &mut RuntimeSnapshot,
+    override_record: crate::runtime::LocalPortOverride,
+) {
+    if let Some(index) = runtime_snapshot
+        .local_port_overrides
+        .iter()
+        .position(|existing| {
+            existing.runtime_instance_id == override_record.runtime_instance_id
+                && existing.original_port == override_record.original_port
+        })
+    {
+        runtime_snapshot.local_port_overrides[index] = override_record;
+    } else {
+        runtime_snapshot.local_port_overrides.push(override_record);
+    }
+}
+
 fn upsert_recovery_item(
     recovery_collection: &mut RecoveryCollection,
     recovery_item: crate::runtime::RecoveryItem,
@@ -1816,6 +2195,78 @@ fn upsert_recovery_item(
         recovery_collection.items[index] = recovery_item;
     } else {
         recovery_collection.items.push(recovery_item);
+    }
+}
+
+fn local_bindings_from_rule(rule: &DomainRule) -> Vec<crate::runtime::LocalPortBinding> {
+    std::iter::once(&rule.main_port)
+        .chain(rule.secondary_ports.iter())
+        .map(|mapping| {
+            crate::runtime::LocalPortBinding::new(
+                mapping.local_port,
+                mapping.remote_host.clone(),
+                mapping.remote_port,
+            )
+        })
+        .collect()
+}
+
+fn recovery_id_for_rule(rule_id: &str) -> String {
+    format!("recovery-{rule_id}")
+}
+
+fn rule_id_from_recovery_id(recovery_id: &str) -> Result<RuleId, Box<BridgeError>> {
+    let trimmed = recovery_id.trim();
+
+    if trimmed.is_empty() {
+        return Err(Box::new(recovery_action_error(
+            "缺少要清除的恢复项",
+            Some("recovery_id must not be empty.".to_string()),
+            None,
+            None,
+            None,
+        )));
+    }
+
+    let Some(rule_id) = trimmed.strip_prefix("recovery-") else {
+        return Err(Box::new(recovery_action_error(
+            "恢复项标识无效",
+            Some(format!("recovery_id={trimmed}")),
+            None,
+            None,
+            Some(trimmed.to_string()),
+        )));
+    };
+
+    if rule_id.trim().is_empty() {
+        return Err(Box::new(recovery_action_error(
+            "恢复项缺少规则标识",
+            Some(format!("recovery_id={trimmed}")),
+            None,
+            None,
+            Some(trimmed.to_string()),
+        )));
+    }
+
+    Ok(RuleId::from(rule_id.to_string()))
+}
+
+fn recovery_action_error(
+    summary: impl Into<String>,
+    detail: Option<String>,
+    affected_rule_id: Option<String>,
+    affected_runtime_id: Option<String>,
+    affected_recovery_id: Option<String>,
+) -> BridgeError {
+    BridgeError {
+        code: BridgeErrorCode::RuntimeLifecycleFailed,
+        summary: summary.into(),
+        detail,
+        affected_port: None,
+        affected_rule_id,
+        affected_runtime_id,
+        affected_recovery_id,
+        suggested_recovery: Some("重新读取运行状态后再试。".to_string()),
     }
 }
 
@@ -3574,6 +4025,368 @@ mod tests {
             .expect("runtime exists")
             .instances
             .is_empty());
+    }
+
+    #[test]
+    fn recover_item_restarts_persisted_recovery_item_into_runtime_snapshot() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let recovery = crate::runtime::RecoveryItem {
+            rule_id: rule.id.clone(),
+            host_id: rule.host_id.clone(),
+            provider_target_id: rule.provider_target_id.clone(),
+            last_local_bindings: vec![crate::runtime::LocalPortBinding::new(
+                4300,
+                "127.0.0.1",
+                3000,
+            )],
+            last_seen_status: RuntimeStatus::Connected,
+            recoverable_since: UNIX_EPOCH,
+        };
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_recovery_collection(&RecoveryCollection {
+                items: vec![recovery],
+            })
+            .expect("recovery saves");
+        let launched = Rc::new(RefCell::new(Vec::new()));
+
+        let snapshot = recover_item_in_store(
+            &mut store,
+            RecoverItemCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: launched.clone(),
+                next_process: MockProcess {
+                    pid: Some(5252),
+                    exit: None,
+                },
+            }),
+        )
+        .expect("item recovers");
+
+        assert_eq!(launched.borrow().len(), 1);
+        assert!(launched.borrow()[0]
+            .args
+            .contains(&"4300:127.0.0.1:3000".to_string()));
+        assert!(snapshot
+            .last_action
+            .as_ref()
+            .is_some_and(|status| status.ok));
+
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.state, RunRecoveryRowState::Connected);
+        assert_eq!(row.runtime_id.as_deref(), Some("runtime-rule-react"));
+        assert_eq!(row.port_summary, "4300");
+        assert!(store
+            .load_recovery_collection()
+            .expect("recovery loads")
+            .items
+            .is_empty());
+
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(runtime_snapshot.instances.len(), 1);
+        assert_eq!(runtime_snapshot.provider_processes[0].pid, 5252);
+    }
+
+    #[test]
+    fn apply_local_port_override_recovers_without_mutating_saved_rule_configuration() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let recovery = crate::runtime::RecoveryItem {
+            rule_id: rule.id.clone(),
+            host_id: rule.host_id.clone(),
+            provider_target_id: rule.provider_target_id.clone(),
+            last_local_bindings: vec![
+                crate::runtime::LocalPortBinding::new(4300, "127.0.0.1", 3000),
+                crate::runtime::LocalPortBinding::new(4301, "127.0.0.1", 3001),
+            ],
+            last_seen_status: RuntimeStatus::Connected,
+            recoverable_since: UNIX_EPOCH,
+        };
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_recovery_collection(&RecoveryCollection {
+                items: vec![recovery],
+            })
+            .expect("recovery saves");
+        let launched = Rc::new(RefCell::new(Vec::new()));
+
+        let snapshot = apply_local_port_override_in_store(
+            &mut store,
+            ApplyLocalPortOverrideCommand {
+                rule_id: "rule-react".to_string(),
+                local_port: 5300,
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: launched.clone(),
+                next_process: MockProcess {
+                    pid: Some(5253),
+                    exit: None,
+                },
+            }),
+        )
+        .expect("item recovers with override");
+
+        assert!(launched.borrow()[0]
+            .args
+            .contains(&"5300:127.0.0.1:3000".to_string()));
+        assert!(launched.borrow()[0]
+            .args
+            .contains(&"4301:127.0.0.1:3001".to_string()));
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.state, RunRecoveryRowState::Connected);
+        assert_eq!(row.port_summary, "5300 + 4301");
+
+        let configuration = store
+            .load_configuration()
+            .expect("configuration loads")
+            .expect("configuration exists");
+        assert_eq!(configuration.rules[0].main_port.local_port, 3000);
+        assert_eq!(configuration.rules[0].secondary_ports[0].local_port, 3001);
+
+        let runtime_snapshot = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(runtime_snapshot.local_port_overrides.len(), 1);
+        assert_eq!(runtime_snapshot.local_port_overrides[0].original_port, 4300);
+        assert_eq!(
+            runtime_snapshot.local_port_overrides[0].effective_port,
+            5300
+        );
+        assert!(!runtime_snapshot.local_port_overrides[0].persisted);
+        assert!(runtime_snapshot.instances[0].local_bindings[0].temporary_override);
+        assert_eq!(
+            runtime_snapshot.instances[0].local_bindings[1].local_port,
+            4301
+        );
+    }
+
+    #[test]
+    fn recover_item_requires_provider_pid_before_persisting_recovered_runtime() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let recovery = crate::runtime::RecoveryItem {
+            rule_id: rule.id.clone(),
+            host_id: rule.host_id.clone(),
+            provider_target_id: rule.provider_target_id.clone(),
+            last_local_bindings: vec![crate::runtime::LocalPortBinding::new(
+                4300,
+                "127.0.0.1",
+                3000,
+            )],
+            last_seen_status: RuntimeStatus::Connected,
+            recoverable_since: UNIX_EPOCH,
+        };
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_recovery_collection(&RecoveryCollection {
+                items: vec![recovery],
+            })
+            .expect("recovery saves");
+
+        let error = recover_item_in_store(
+            &mut store,
+            RecoverItemCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: None,
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("recovered runtime without pid metadata must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(error.affected_rule_id.as_deref(), Some("rule-react"));
+        assert_eq!(
+            error.affected_runtime_id.as_deref(),
+            Some("runtime-rule-react")
+        );
+        assert!(store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .is_none());
+        assert_eq!(
+            store
+                .load_recovery_collection()
+                .expect("recovery loads")
+                .items
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn clear_recovery_item_removes_persisted_recovery_without_deleting_saved_rule() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let configuration = sample_configuration_with_ssh_rule();
+        let rule = &configuration.rules[0];
+        let recovery = crate::runtime::RecoveryItem {
+            rule_id: rule.id.clone(),
+            host_id: rule.host_id.clone(),
+            provider_target_id: rule.provider_target_id.clone(),
+            last_local_bindings: vec![crate::runtime::LocalPortBinding::new(
+                4300,
+                "127.0.0.1",
+                3000,
+            )],
+            last_seen_status: RuntimeStatus::Error,
+            recoverable_since: UNIX_EPOCH,
+        };
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        store
+            .save_recovery_collection(&RecoveryCollection {
+                items: vec![recovery],
+            })
+            .expect("recovery saves");
+
+        let snapshot = clear_recovery_item_in_store(
+            &mut store,
+            ClearRecoveryItemCommand {
+                recovery_id: "recovery-rule-react".to_string(),
+            },
+        )
+        .expect("recovery clears");
+
+        assert!(store
+            .load_recovery_collection()
+            .expect("recovery loads")
+            .items
+            .is_empty());
+        assert_eq!(
+            store
+                .load_configuration()
+                .expect("configuration loads")
+                .expect("configuration exists")
+                .rules
+                .len(),
+            1
+        );
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.state, RunRecoveryRowState::Recoverable);
+        assert_eq!(row.port_summary, "3000 + 3001");
+        assert_eq!(
+            row.error.as_ref().map(|error| error.code.as_str()),
+            Some("configured_not_running")
+        );
+    }
+
+    #[test]
+    fn real_recovery_actions_return_structured_errors_for_invalid_inputs() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration_with_ssh_rule())
+            .expect("configuration saves");
+
+        let port_error = apply_local_port_override_in_store(
+            &mut store,
+            ApplyLocalPortOverrideCommand {
+                rule_id: "rule-react".to_string(),
+                local_port: 0,
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: None,
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("zero port is invalid");
+        assert_eq!(port_error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(port_error.affected_rule_id.as_deref(), Some("rule-react"));
+
+        let recovery_error = clear_recovery_item_in_store(
+            &mut store,
+            ClearRecoveryItemCommand {
+                recovery_id: "not-a-recovery-id".to_string(),
+            },
+        )
+        .expect_err("recovery id is invalid");
+        assert_eq!(recovery_error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(
+            recovery_error.affected_recovery_id.as_deref(),
+            Some("not-a-recovery-id")
+        );
+
+        let missing_rule_error = recover_item_in_store(
+            &mut store,
+            RecoverItemCommand {
+                rule_id: "missing-rule".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: None,
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("missing rule is invalid");
+        assert_eq!(
+            missing_rule_error.code,
+            BridgeErrorCode::RegistryValidationFailed
+        );
+
+        let rule = &sample_configuration_with_ssh_rule().rules[0];
+        let runtime = crate::runtime::RuntimeInstance::new(
+            RuntimeInstanceId::from("runtime-rule-react"),
+            rule.id.clone(),
+            rule.host_id.clone(),
+            rule.provider_target_id.clone(),
+            vec![crate::runtime::LocalPortBinding::new(
+                3000,
+                "127.0.0.1",
+                3000,
+            )],
+        );
+        store
+            .save_runtime_snapshot(&RuntimeSnapshot {
+                instances: vec![runtime],
+                provider_processes: Vec::new(),
+                local_port_overrides: Vec::new(),
+            })
+            .expect("runtime saves");
+
+        let running_error = recover_item_in_store(
+            &mut store,
+            RecoverItemCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            OpenSshProvider::new(MockLauncher {
+                launched: Rc::new(RefCell::new(Vec::new())),
+                next_process: MockProcess {
+                    pid: None,
+                    exit: None,
+                },
+            }),
+        )
+        .expect_err("running runtime blocks recovery");
+        assert_eq!(running_error.code, BridgeErrorCode::RuntimeLifecycleFailed);
+        assert_eq!(
+            running_error.affected_runtime_id.as_deref(),
+            Some("runtime-rule-react")
+        );
     }
 
     #[test]

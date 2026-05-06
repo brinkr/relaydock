@@ -316,6 +316,33 @@ where
         runtime_instance_id: RuntimeInstanceId,
     ) -> Result<SshRuntimeHandle<L::Process>, ProviderError> {
         let plan = self.build_launch_plan(host, rule, provider_target, runtime_instance_id)?;
+        self.start_launch_plan(rule, provider_target, plan)
+    }
+
+    pub fn start_rule_with_bindings(
+        &self,
+        host: &Host,
+        rule: &Rule,
+        provider_target: &ProviderTarget,
+        runtime_instance_id: RuntimeInstanceId,
+        local_bindings: Vec<LocalPortBinding>,
+    ) -> Result<SshRuntimeHandle<L::Process>, ProviderError> {
+        let plan = build_openssh_launch_plan_with_bindings(
+            host,
+            rule,
+            provider_target,
+            runtime_instance_id,
+            local_bindings,
+        )?;
+        self.start_launch_plan(rule, provider_target, plan)
+    }
+
+    fn start_launch_plan(
+        &self,
+        rule: &Rule,
+        provider_target: &ProviderTarget,
+        plan: OpenSshLaunchPlan,
+    ) -> Result<SshRuntimeHandle<L::Process>, ProviderError> {
         let process = self.launcher.launch(&plan.command).map_err(|error| {
             error
                 .with_rule_context(rule, provider_target)
@@ -418,9 +445,24 @@ pub fn build_openssh_launch_plan(
     provider_target: &ProviderTarget,
     runtime_instance_id: RuntimeInstanceId,
 ) -> Result<OpenSshLaunchPlan, ProviderError> {
+    build_openssh_launch_plan_with_bindings(
+        host,
+        rule,
+        provider_target,
+        runtime_instance_id,
+        local_bindings_for_rule(rule),
+    )
+}
+
+pub fn build_openssh_launch_plan_with_bindings(
+    host: &Host,
+    rule: &Rule,
+    provider_target: &ProviderTarget,
+    runtime_instance_id: RuntimeInstanceId,
+    local_bindings: Vec<LocalPortBinding>,
+) -> Result<OpenSshLaunchPlan, ProviderError> {
     validate_ssh_launch_inputs(host, rule, provider_target)?;
 
-    let local_bindings = local_bindings_for_rule(rule);
     let mut args = vec![
         "-N".to_string(),
         "-T".to_string(),

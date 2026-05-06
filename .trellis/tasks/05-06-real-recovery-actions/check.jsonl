@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/05-06-real-recovery-actions/prd.md","reason":"Acceptance criteria and out-of-scope boundaries to verify."}
+{"file":".trellis/spec/bridge/boundary-rules.md","reason":"Check command shape, bridge ownership, and structured error behavior."}
+{"file":".trellis/spec/rust-core/domain-and-state.md","reason":"Check runtime/recovery state ownership and local port override semantics."}
+{"file":".trellis/spec/rust-core/provider-and-process.md","reason":"Check provider lifecycle boundaries and pid-backed MVP constraints."}
+{"file":".trellis/spec/swift-shell/ui-patterns.md","reason":"Check Swift action routing stays native and does not invent runtime state."}

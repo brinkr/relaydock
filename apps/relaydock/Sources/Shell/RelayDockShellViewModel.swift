@@ -100,6 +100,21 @@ final class RelayDockShellViewModel: ObservableObject {
         isLoadingRunRecovery = false
     }
 
+    func recoverItem(ruleId: String) {
+        guard let bridgeExecutor else {
+            loadRunRecoverySnapshot()
+            return
+        }
+
+        isLoadingRunRecovery = true
+        do {
+            applySnapshot(try bridgeExecutor.recoverItem(ruleId: ruleId))
+        } catch {
+            applyBridgeFailure(error)
+        }
+        isLoadingRunRecovery = false
+    }
+
     func retryDemoRuntime(runtimeId: String) {
         performSnapshotAction { executor, snapshot in
             try executor.retryDemoRuntime(runtimeId: runtimeId, snapshot: snapshot)
@@ -127,20 +142,34 @@ final class RelayDockShellViewModel: ObservableObject {
         isLoadingRunRecovery = false
     }
 
-    func clearDemoRecoveryItem(recoveryId: String) {
-        performSnapshotAction { executor, snapshot in
-            try executor.clearDemoRecoveryItem(recoveryId: recoveryId, snapshot: snapshot)
+    func clearRecoveryItem(recoveryId: String) {
+        guard let bridgeExecutor else {
+            loadRunRecoverySnapshot()
+            return
         }
+
+        isLoadingRunRecovery = true
+        do {
+            applySnapshot(try bridgeExecutor.clearRecoveryItem(recoveryId: recoveryId))
+        } catch {
+            applyBridgeFailure(error)
+        }
+        isLoadingRunRecovery = false
     }
 
-    func applyDemoLocalPortOverride(ruleId: String, localPort: UInt16) {
-        performSnapshotAction { executor, snapshot in
-            try executor.applyDemoLocalPortOverride(
-                ruleId: ruleId,
-                localPort: localPort,
-                snapshot: snapshot
-            )
+    func applyLocalPortOverride(ruleId: String, localPort: UInt16) {
+        guard let bridgeExecutor else {
+            loadRunRecoverySnapshot()
+            return
         }
+
+        isLoadingRunRecovery = true
+        do {
+            applySnapshot(try bridgeExecutor.applyLocalPortOverride(ruleId: ruleId, localPort: localPort))
+        } catch {
+            applyBridgeFailure(error)
+        }
+        isLoadingRunRecovery = false
     }
 
     func retryRuntimeForRule(_ ruleId: String) {
@@ -219,12 +248,12 @@ final class RelayDockShellViewModel: ObservableObject {
         rows.compactMap(\.runtimeId).forEach(stopRuntimeInstance)
     }
 
-    func clearAllDemoRecoveryItems() {
+    func clearAllRecoveryItems() {
         guard let rows = runRecoverySnapshot?.hosts.flatMap(\.rows) else {
             return
         }
 
-        rows.compactMap(\.recoveryId).forEach(clearDemoRecoveryItem)
+        rows.compactMap(\.recoveryId).forEach(clearRecoveryItem)
     }
 
     func loadRegistrySnapshot() {
