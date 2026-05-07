@@ -1627,13 +1627,15 @@ fn save_registry_rule_to_store(
     store: &mut RelayDockStore,
     command: SaveRegistryRuleCommand,
 ) -> Result<RegistrySnapshotResult, Box<BridgeError>> {
-    validate_registry_rule_draft(&command.rule)?;
+    let rule_draft = command.rule;
+    validate_registry_rule_draft(&rule_draft)?;
 
     let mut configuration = store
         .load_configuration()
         .map_err(storage_error_to_bridge)?
         .unwrap_or_default();
-    let rule = domain_rule_from_draft(command.rule)?;
+    validate_registry_rule_references(&configuration, &rule_draft)?;
+    let rule = domain_rule_from_draft(rule_draft)?;
     let selected_host_id = rule.host_id.to_string();
 
     if let Some(index) = configuration
@@ -3182,6 +3184,41 @@ fn validate_registry_rule_draft(draft: &RegistryRuleDraft) -> Result<(), Box<Bri
     }
 
     Ok(())
+}
+
+fn validate_registry_rule_references(
+    configuration: &ConfigurationSnapshot,
+    draft: &RegistryRuleDraft,
+) -> Result<(), Box<BridgeError>> {
+    let host_id = draft.host_id.trim();
+    let provider_target_id = draft.provider_target_id.trim();
+
+    let host = configuration
+        .hosts
+        .iter()
+        .find(|host| host.id.as_str() == host_id)
+        .ok_or_else(|| {
+            Box::new(BridgeError::registry_validation(
+                "规则引用的主机不存在",
+                Some(format!("rule.host_id={host_id}")),
+            ))
+        })?;
+
+    if host
+        .provider_targets
+        .iter()
+        .any(|target| target.id.as_str() == provider_target_id)
+    {
+        return Ok(());
+    }
+
+    Err(BridgeError::registry_validation(
+        "规则引用的 provider target 不属于该主机",
+        Some(format!(
+            "rule.host_id={host_id}, rule.provider_target_id={provider_target_id}"
+        )),
+    )
+    .into())
 }
 
 fn domain_host_from_draft(draft: RegistryHostDraft) -> Result<DomainHost, Box<BridgeError>> {
@@ -5244,6 +5281,95 @@ mod tests {
         assert_eq!(rule.port_summary, "4300 + 4301");
         assert_eq!(rule.main_local_port, 4300);
         assert_eq!(rule.secondary_ports.len(), 1);
+    }
+
+    #[test]
+    fn save_registry_rule_to_store_rejects_missing_host_reference() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration())
+            .expect("configuration saves");
+
+        let error = save_registry_rule_to_store(
+            &mut store,
+            SaveRegistryRuleCommand {
+                rule: RegistryRuleDraft {
+                    id: None,
+                    host_id: "missing-host".to_string(),
+                    service_name: "导入规则".to_string(),
+                    alias: None,
+                    provider_target_id: "target-home-ssh".to_string(),
+                    remote_host: "127.0.0.1".to_string(),
+                    main_local_port: 18317,
+                    main_remote_host: "127.0.0.1".to_string(),
+                    main_remote_port: 18317,
+                    secondary_ports: Vec::new(),
+                    kind: Some("web".to_string()),
+                    tags: Vec::new(),
+                    notes: None,
+                },
+            },
+        )
+        .expect_err("missing host reference must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::RegistryValidationFailed);
+        assert_eq!(error.summary, "规则引用的主机不存在");
+    }
+
+    #[test]
+    fn save_registry_rule_to_store_rejects_provider_target_from_another_host() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let mut configuration = sample_configuration();
+        let other_host_id = HostId::from("host-other");
+        configuration.hosts.push(DomainHost {
+            id: other_host_id.clone(),
+            name: "Other Host".to_string(),
+            address: "10.0.0.8".to_string(),
+            port: Some(22),
+            user: Some("admin".to_string()),
+            tags: Vec::new(),
+            os_family: OsFamily::Linux,
+            os_distro: None,
+            status_hint: HostStatusHint::Unknown,
+            provider_targets: vec![DomainProviderTarget {
+                id: ProviderTargetId::from("target-other-ssh"),
+                host_id: other_host_id,
+                target_type: ProviderTargetType::Ssh,
+                label: "SSH · 其他".to_string(),
+                target_address: "10.0.0.8".to_string(),
+                target_port: Some(22),
+                auth_ref: None,
+                meta: Metadata::new(),
+            }],
+        });
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+
+        let error = save_registry_rule_to_store(
+            &mut store,
+            SaveRegistryRuleCommand {
+                rule: RegistryRuleDraft {
+                    id: None,
+                    host_id: "host-home".to_string(),
+                    service_name: "导入规则".to_string(),
+                    alias: None,
+                    provider_target_id: "target-other-ssh".to_string(),
+                    remote_host: "127.0.0.1".to_string(),
+                    main_local_port: 18317,
+                    main_remote_host: "127.0.0.1".to_string(),
+                    main_remote_port: 18317,
+                    secondary_ports: Vec::new(),
+                    kind: Some("web".to_string()),
+                    tags: Vec::new(),
+                    notes: None,
+                },
+            },
+        )
+        .expect_err("provider target from another host must fail");
+
+        assert_eq!(error.code, BridgeErrorCode::RegistryValidationFailed);
+        assert_eq!(error.summary, "规则引用的 provider target 不属于该主机");
     }
 
     #[test]

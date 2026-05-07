@@ -1,0 +1,32 @@
+{
+  "id": "improve-ssh-import-workflow",
+  "name": "improve-ssh-import-workflow",
+  "title": "Improve SSH command import workflow",
+  "description": "Make SSH command import follow normal paste behavior, parse visibly, and assign imported forwards to the right host/target or create the missing host.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "brink",
+  "assignee": "brink",
+  "createdAt": "2026-05-07",
+  "completedAt": "2026-05-07",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "05-06-correct-prototype-ui-style-drift",
+  "relatedFiles": [
+    "apps/relaydock/Sources/App/RelayDockApp.swift",
+    "apps/relaydock/Sources/App/RelayDockWindowController.swift",
+    "apps/relaydock/Sources/Features/Registry/RegistryView.swift",
+    "apps/relaydock/Sources/Shell/RelayDockShellViewModel.swift",
+    "crates/relaydock-core/src/commands.rs"
+  ],
+  "notes": "Completed SSH import workflow: normal Command+V and visible paste now work, stale parsed-zero state is gone, parsed destinations select matching SSH targets globally, existing hosts can receive a new SSH target, unmatched destinations default to a new host, and bridge storage rejects missing or cross-host rule target references.",
+  "meta": {}
+}

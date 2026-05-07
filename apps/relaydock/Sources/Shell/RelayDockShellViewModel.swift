@@ -334,7 +334,7 @@ final class RelayDockShellViewModel: ObservableObject {
         }
     }
 
-    func saveRegistryHost(_ host: RegistryHostDraft) throws {
+    func saveRegistryHost(_ host: RegistryHostDraft) throws -> RegistrySnapshotResult {
         guard let bridgeExecutor else {
             throw BridgeErrorInfo(
                 code: .processFailed,
@@ -348,7 +348,9 @@ final class RelayDockShellViewModel: ObservableObject {
             )
         }
 
-        applyRegistrySnapshot(try bridgeExecutor.saveRegistryHost(host))
+        let snapshot = try bridgeExecutor.saveRegistryHost(host)
+        applyRegistrySnapshot(snapshot)
+        return snapshot
     }
 
     func parseSshCommand(_ commandText: String) throws -> ParseSshCommandResult {
@@ -368,7 +370,7 @@ final class RelayDockShellViewModel: ObservableObject {
         return try bridgeExecutor.parseSshCommand(commandText)
     }
 
-    func saveRegistryRule(_ rule: RegistryRuleDraft) throws {
+    func saveRegistryRule(_ rule: RegistryRuleDraft) throws -> RegistrySnapshotResult {
         guard let bridgeExecutor else {
             throw BridgeErrorInfo(
                 code: .processFailed,
@@ -382,7 +384,9 @@ final class RelayDockShellViewModel: ObservableObject {
             )
         }
 
-        applyRegistrySnapshot(try bridgeExecutor.saveRegistryRule(rule))
+        let snapshot = try bridgeExecutor.saveRegistryRule(rule)
+        applyRegistrySnapshot(snapshot)
+        return snapshot
     }
 
     private func applySnapshot(_ snapshot: RunRecoverySnapshotResult) {

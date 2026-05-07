@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project and stack compliance"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell quality checklist"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Registry and native UI expectations"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Boundary review for Swift orchestration"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Build and visual QA expectations"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge quality checklist"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Bridge command contract review"}
+{"ts":"2026-05-07T17:31:18+0800","check":"swift build","status":"pass"}
+{"ts":"2026-05-07T17:31:18+0800","check":"cargo test -p relaydock-core ssh_import -- --nocapture","status":"pass","detail":"8 tests passed"}
+{"ts":"2026-05-07T17:31:18+0800","check":"cargo test -p relaydock-core registry -- --nocapture","status":"pass","detail":"8 tests passed"}
+{"ts":"2026-05-07T17:31:18+0800","check":"git diff --check","status":"pass"}
+{"ts":"2026-05-07T17:31:18+0800","check":"GUI smoke","status":"pass","detail":"Isolated store app run: Command+V pasted sample SSH command, parse showed one rule, default target was new host 111.230.202.80, save persisted one imported rule under the new SSH target."}

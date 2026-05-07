@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project stack and LocalPort boundary constraints"}
+{"file": ".trellis/spec/project/commit-guidelines.md", "reason": "Document-style commit requirements"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell ownership and quality checklist"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Registry layout, native macOS UI, and visual QA expectations"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Swift may own form/presentation state but not SSH parsing or runtime orchestration"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Native UI and visual QA verification requirements"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge command boundary checklist"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "parse_ssh_command, save_registry_host, and save_registry_rule contracts"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust parser and storage quality expectations if parser tests are touched"}
+{"ts":"2026-05-07T17:31:18+0800","event":"implemented","summary":"Rebuilt SSH import sheet around all registry SSH targets, explicit paste/parse state, parsed-destination host/target assignment, existing-host SSH target creation, and snapshot-returning save callbacks."}
+{"ts":"2026-05-07T17:31:18+0800","event":"implemented","summary":"Added standard macOS Edit menu and window-level paste key equivalent so Command+V reaches focused text responders in the hand-built AppKit shell."}
+{"ts":"2026-05-07T17:31:18+0800","event":"implemented","summary":"Added Rust registry rule reference validation for missing host and cross-host provider target references."}

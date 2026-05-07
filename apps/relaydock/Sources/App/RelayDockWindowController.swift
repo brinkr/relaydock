@@ -6,7 +6,7 @@ final class RelayDockWindowController: NSWindowController {
     convenience init() {
         let rootView = RelayDockShellView(viewModel: RelayDockShellViewModel())
         let hostingController = NSHostingController(rootView: rootView)
-        let window = NSWindow(contentViewController: hostingController)
+        let window = RelayDockWindow(contentViewController: hostingController)
 
         window.title = "RelayDock"
         window.setContentSize(NSSize(width: 1120, height: 760))
@@ -35,5 +35,23 @@ final class RelayDockWindowController: NSWindowController {
             y: visibleFrame.midY - frame.height / 2
         )
         window.setFrameOrigin(origin)
+    }
+}
+
+private final class RelayDockWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let pasteModifiers: NSEvent.ModifierFlags = [.command, .control]
+        let unsupportedModifiers = modifiers.subtracting(pasteModifiers)
+
+        if event.charactersIgnoringModifiers?.lowercased() == "v",
+           !modifiers.intersection(pasteModifiers).isEmpty,
+           unsupportedModifiers.isEmpty,
+           firstResponder?.responds(to: #selector(NSText.paste(_:))) == true {
+            NSApp.sendAction(#selector(NSText.paste(_:)), to: firstResponder, from: nil)
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
     }
 }
