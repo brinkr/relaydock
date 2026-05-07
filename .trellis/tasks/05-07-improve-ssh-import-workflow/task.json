@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "05-07-add-stopped-rule-start-action"
+  ],
   "parent": "05-06-correct-prototype-ui-style-drift",
   "relatedFiles": [
     "apps/relaydock/Sources/App/RelayDockApp.swift",

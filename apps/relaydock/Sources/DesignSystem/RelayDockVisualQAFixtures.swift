@@ -112,6 +112,7 @@ struct RelayDockVisualQAFixtures {
                     registryRule("go-microservice", "Go Microservice", "go.home.localhost", "SSH · 家庭宽带", "8081", .error, "target-home-ssh"),
                     registryRule("rabbitmq", "RabbitMQ", "mq.home.localhost", "SSH · 家庭宽带", "5672 + 15672", .error, "target-home-ssh"),
                     registryRule("kibana", "Kibana", "kibana.home.localhost", "SSH · 家庭宽带", "5601", .recoverable, "target-home-ssh"),
+                    registryRule("redroid-adb", "Redroid ADB", "adb.home.localhost", "SSH · 家庭宽带", "5555", .stopped, "target-home-ssh"),
                 ]
             ),
             registryHost(

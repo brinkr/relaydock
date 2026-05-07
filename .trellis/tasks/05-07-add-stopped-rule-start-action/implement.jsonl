@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project stack and LocalPort boundary constraints"}
+{"file": ".trellis/spec/project/commit-guidelines.md", "reason": "Document-style commit requirements"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell ownership and UI checklist"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Registry row action slots and status-action expectations"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Swift can expose presentation actions but must not own runtime orchestration"}
+{"ts":"2026-05-07T17:54:00+0800","event":"implemented","summary":"Changed stopped registry rule rows from an empty action slot to a 启动 action that reuses the existing startRule shell callback."}
+{"ts":"2026-05-07T17:54:00+0800","event":"implemented","summary":"Added a stopped rule to the first-screen visual QA density fixture and updated Swift shell UI patterns to include 启动 as a registry state action."}

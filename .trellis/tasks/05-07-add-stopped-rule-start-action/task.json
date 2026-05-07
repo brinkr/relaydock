@@ -1,0 +1,30 @@
+{
+  "id": "add-stopped-rule-start-action",
+  "name": "add-stopped-rule-start-action",
+  "title": "Add stopped rule start action",
+  "description": "Expose a start action for stopped registry rules so imported SSH forwards can be launched directly after save.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "brink",
+  "assignee": "brink",
+  "createdAt": "2026-05-07",
+  "completedAt": "2026-05-07",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "05-07-improve-ssh-import-workflow",
+  "relatedFiles": [
+    "apps/relaydock/Sources/Features/Registry/RegistryView.swift",
+    "apps/relaydock/Sources/DesignSystem/RelayDockVisualQAFixtures.swift",
+    ".trellis/spec/swift-shell/ui-patterns.md"
+  ],
+  "notes": "Stopped registry rules now show 启动 and reuse the existing startRule path; visual QA density fixtures include a first-screen stopped row so the entry remains visible in automated screenshots.",
+  "meta": {}
+}

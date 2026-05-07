@@ -642,8 +642,9 @@ private struct RegistryRuleRow: View {
                 onRetryRule(rule.id)
             }
         case .stopped:
-            Color.clear
-                .frame(width: 30, height: 1)
+            actionButton("启动") {
+                onRecoverRule(rule.id)
+            }
         }
     }
 }

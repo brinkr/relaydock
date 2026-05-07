@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Verify stack and task boundary did not drift"}
+{"file": ".trellis/spec/project/commit-guidelines.md", "reason": "Verify final commit body documents reason, purpose, scope, and boundary"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Verify Swift shell UI quality checklist"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Verify registry state actions and visual QA fixture coverage"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Verify no Swift-owned runtime state machine was introduced"}
+{"ts":"2026-05-07T17:55:00+0800","event":"verified","summary":"task.py validate 05-07-add-stopped-rule-start-action passed with 5 implement context entries and 5 check context entries."}
+{"ts":"2026-05-07T17:55:00+0800","event":"verified","summary":"swift build passed after the stopped-rule start action and visual QA fixture update."}
+{"ts":"2026-05-07T17:55:00+0800","event":"verified","summary":"git diff --check passed."}
+{"ts":"2026-05-07T17:55:00+0800","event":"verified","summary":"scripts/visual-qa/relaydock-window-snapshot.sh passed and generated registry screenshot artifacts/visual-qa/relaydock-window-20260507-175337-registry.png showing 已停止 with 启动."}
