@@ -45,10 +45,10 @@ struct RelayDockVisualQAFixtures {
                     occurredAtEpochSeconds: 1_777_777_700,
                     component: "provider.openssh",
                     summary: "OpenSSH 隧道已启动",
-                    detail: "ssh -N -T -L 3000:127.0.0.1:3000 admin@192.168.1.5 | pid=4242",
+                    detail: "ssh -N -T -L 18317:127.0.0.1:18317 admin@192.168.1.5 | pid=4242",
                     hostId: "host-home-mac-mini",
-                    ruleId: "react-frontend",
-                    runtimeId: "runtime-react-frontend",
+                    ruleId: "relay-admin",
+                    runtimeId: "runtime-relay-admin",
                     providerTargetId: "target-home-tailscale"
                 ),
             ]
@@ -75,7 +75,15 @@ struct RelayDockVisualQAFixtures {
                 providerSummary: "SSH · 家庭宽带 / Tailscale · 家里",
                 healthSummary: "SSH · 家庭宽带 · 1 运行 / 2 异常 / Tailscale · 家里 · 3 运行",
                 rows: [
-                    connectedRow("react-frontend", "React 前端", "react.home.localhost", "3000 -> 127.0.0.1:3000", "Tailscale · 家里", "6h 12m · 2ms · 0次"),
+                    connectedRow(
+                        "relay-admin",
+                        "RelayDock Console",
+                        "ssh-18317.localhost",
+                        "18317 -> 127.0.0.1:18317",
+                        "Tailscale · 家里",
+                        "6h 12m · 2ms · 0次",
+                        includeEntryURL: false
+                    ),
                     connectedRow("fastapi-backend", "FastAPI Backend", "api.home.localhost", "8000 -> api.internal:8000", "Tailscale · 家里", "6h 12m · 3ms · 0次"),
                     connectedRow("redis-cache", "Redis Cache", "redis.home.localhost", "6379 -> 127.0.0.1:6379", "SSH · 家庭宽带", "24h 05m · 1ms · 0次"),
                     connectedRow("nextjs-app", "Next.js App", "next.home.localhost", "3001 -> 127.0.0.1:3001", "Tailscale · 家里", "2h 00m · 5ms · 2次"),
@@ -119,7 +127,7 @@ struct RelayDockVisualQAFixtures {
                         name: "日常工作台",
                         derivedFrom: nil,
                         rules: [
-                            RegistryPresetRule(serviceName: "React 前端", targetLabel: "Tailscale · 家里"),
+                            RegistryPresetRule(serviceName: "RelayDock Console", targetLabel: "Tailscale · 家里"),
                             RegistryPresetRule(serviceName: "FastAPI Backend", targetLabel: "Tailscale · 家里"),
                             RegistryPresetRule(serviceName: "PostgreSQL Main", targetLabel: "SSH · 家庭宽带"),
                         ]
@@ -135,7 +143,7 @@ struct RelayDockVisualQAFixtures {
                     ),
                 ],
                 rules: [
-                    registryRule("react-frontend", "React 前端", "react.home.localhost", "Tailscale · 家里", "3000", .running, "target-home-tailscale"),
+                    registryRule("relay-admin", "RelayDock Console", "ssh-18317.localhost", "Tailscale · 家里", "18317", .running, "target-home-tailscale"),
                     registryRule("fastapi-backend", "FastAPI Backend", "api.home.localhost", "Tailscale · 家里", "8000", .running, "target-home-tailscale"),
                     registryRule("postgres-main", "PostgreSQL Main", "pg.home.localhost", "SSH · 家庭宽带", "5432", .recoverable, "target-home-ssh"),
                     registryRule("redis-cache", "Redis Cache", "redis.home.localhost", "SSH · 家庭宽带", "6379", .running, "target-home-ssh"),
@@ -182,7 +190,8 @@ struct RelayDockVisualQAFixtures {
         _ portSummary: String,
         _ providerLabel: String,
         _ telemetry: String,
-        hostId: String = "host-home-mac-mini"
+        hostId: String = "host-home-mac-mini",
+        includeEntryURL: Bool = true
     ) -> RunRecoveryRow {
         RunRecoveryRow(
             id: "runtime-\(slug)",
@@ -192,7 +201,7 @@ struct RelayDockVisualQAFixtures {
             hostId: hostId,
             serviceName: serviceName,
             alias: alias,
-            entryUrl: entryURL(alias: alias, portSummary: portSummary),
+            entryUrl: includeEntryURL ? entryURL(alias: alias, portSummary: portSummary) : nil,
             providerLabel: providerLabel,
             portSummary: portSummary,
             state: .connected,

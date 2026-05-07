@@ -68,6 +68,10 @@ final class RelayDockShellViewModel: ObservableObject {
     }
 
     func loadRunRecoverySnapshot() {
+        guard !isLoadingRunRecovery else {
+            return
+        }
+
         if let visualQAFixtures {
             applySnapshot(visualQAFixtures.runRecoverySnapshot)
             return

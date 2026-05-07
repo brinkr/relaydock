@@ -15,6 +15,8 @@ struct RunAndRecoveryView: View {
     @State private var collapsedHostIds = Set<String>()
     @State private var localPortDraft: LocalPortOverrideDraft?
 
+    private static let automaticRefreshInterval: Duration = .seconds(3)
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -51,6 +53,9 @@ struct RunAndRecoveryView: View {
             }
         }
         .background(RelayDockColor.contentBackground)
+        .task {
+            await runAutomaticRefreshLoop()
+        }
         .onChange(of: collapseCommand) { _, command in
             guard let command, let snapshot else {
                 return
@@ -74,6 +79,20 @@ struct RunAndRecoveryView: View {
                     localPortDraft = nil
                 }
             )
+        }
+    }
+
+    private func runAutomaticRefreshLoop() async {
+        while !Task.isCancelled {
+            await MainActor.run {
+                onReload()
+            }
+
+            do {
+                try await Task.sleep(for: Self.automaticRefreshInterval)
+            } catch {
+                return
+            }
         }
     }
 }
@@ -302,11 +321,26 @@ private struct RuntimeServiceRow: View {
                         .foregroundStyle(Color.primary.opacity(0.92))
                         .lineLimit(1)
 
-                    Label(row.entryUrl ?? row.alias, systemImage: "arrow.up.forward.square")
-                        .font(.system(size: 10, design: .monospaced))
-                        .labelStyle(.titleAndIcon)
-                        .foregroundStyle(RelayDockColor.sidebarAccent.opacity(0.82))
-                        .lineLimit(1)
+                    if let entryURL = row.displayEntryURL {
+                        Link(destination: entryURL) {
+                            Label(row.displayEntryText, systemImage: "arrow.up.forward.square")
+                                .font(.system(size: 10, design: .monospaced))
+                                .labelStyle(.titleAndIcon)
+                                .foregroundStyle(RelayDockColor.sidebarAccent.opacity(0.88))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .buttonStyle(.plain)
+                        .help("在浏览器打开 \(row.displayEntryText)")
+                        .accessibilityLabel("在浏览器打开 \(row.displayEntryText)")
+                    } else {
+                        Label(row.displayEntryText, systemImage: "link")
+                            .font(.system(size: 10, design: .monospaced))
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -516,6 +550,47 @@ private struct LocalPortOverrideSheet: View {
 private extension String {
     var firstPortText: String? {
         split(whereSeparator: { !$0.isNumber }).first.map(String.init)
+    }
+
+    var firstLocalPort: UInt16? {
+        guard let firstPortText else {
+            return nil
+        }
+
+        return UInt16(firstPortText)
+    }
+
+    var trimmedNonEmpty: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+}
+
+private extension RunRecoveryRow {
+    var displayEntryText: String {
+        displayEntryURLString ?? alias
+    }
+
+    var displayEntryURL: URL? {
+        guard let displayEntryURLString else {
+            return nil
+        }
+
+        return URL(string: displayEntryURLString)
+    }
+
+    private var displayEntryURLString: String? {
+        if let entryUrl = entryUrl?.trimmedNonEmpty {
+            return entryUrl
+        }
+
+        guard let alias = alias.trimmedNonEmpty,
+              let port = portSummary.firstLocalPort else {
+            return nil
+        }
+
+        let scheme = port == 443 ? "https" : "http"
+        return "\(scheme)://\(alias):\(port)/"
     }
 }
 
