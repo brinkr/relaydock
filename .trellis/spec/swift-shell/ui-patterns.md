@@ -23,6 +23,8 @@ When recovering prototype style, measure from LocalPort source or a fresh LocalP
 
 The content-pane top context bar should not be bounded by a hard horizontal line. With the AppKit full-size transparent titlebar, set the native window titlebar separator to hidden and do not add a visible `ShellTopBar` bottom `Divider`; otherwise the separator becomes the perceived titlebar bottom and makes the bar look too short compared with the LocalPort prototype.
 
+Keep dense visual-QA fixtures as a first-class UI testing asset while shell layouts are still stabilizing. Full-data screenshots are required to catch row wrapping, unstable columns, crowded sidebars, and action overflow. These fixtures must remain behind an explicit opt-in switch such as `RELAYDOCK_VISUAL_QA_FIXTURE=prototype-density`; normal app runs must continue to read from the bridge and SQLite store.
+
 Avoid:
 
 - dashboard home pages
