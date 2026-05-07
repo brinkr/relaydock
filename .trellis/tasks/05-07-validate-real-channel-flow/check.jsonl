@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project constraints and commit-quality checklist"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge quality checklist"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Contracts to verify for real registry and run/recovery commands"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust quality checklist for persistence and runtime behavior"}
+{"file": ".trellis/spec/rust-core/storage-and-diagnostics.md", "reason": "Storage and diagnostics verification requirements"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell quality checklist"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Logs/Diagnostics and shell UI boundaries"}

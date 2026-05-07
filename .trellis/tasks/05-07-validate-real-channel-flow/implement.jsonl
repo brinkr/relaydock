@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project boundary and technology stack constraints for real-channel validation"}
+{"file": ".trellis/spec/project/commit-guidelines.md", "reason": "Document-style commit requirements for any resulting changes"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge command boundary and quality checklist"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Contracts for registry persistence, run/recovery projection, start_rule, and stop_runtime_instance"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust core ownership of runtime, persistence, provider orchestration, and diagnostics"}
+{"file": ".trellis/spec/rust-core/storage-and-diagnostics.md", "reason": "SQLite storage and diagnostic-data requirements"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell UI and bridge rendering boundaries"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Logs/Diagnostics known UI pattern and defer-redesign constraint"}

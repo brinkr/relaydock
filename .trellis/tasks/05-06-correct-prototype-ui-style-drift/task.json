@@ -19,7 +19,8 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "05-07-registry-density-rule-grouping"
+    "05-07-registry-density-rule-grouping",
+    "05-07-validate-real-channel-flow"
   ],
   "parent": null,
   "relatedFiles": [],
