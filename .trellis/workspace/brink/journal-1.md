@@ -687,3 +687,36 @@ Recovered RelayDock UI toward LocalPort prototype anchors and fixed visual QA wi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Expose stopped registry start action
+
+**Date**: 2026-05-07
+**Task**: Expose stopped registry start action
+**Branch**: `main`
+
+### Summary
+
+Added the missing 启动 action for stopped registry rules after SSH import, documented the registry state-action expectation, and verified the UI with visual QA screenshots.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2ad60e4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
