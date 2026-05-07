@@ -186,10 +186,6 @@ private struct ShellTopBar: View {
         .padding(.leading, 16)
         .padding(.trailing, 14)
         .background(RelayDockColor.topBarBackground)
-        .overlay(alignment: .bottom) {
-            Divider()
-                .opacity(0.6)
-        }
     }
 }
 

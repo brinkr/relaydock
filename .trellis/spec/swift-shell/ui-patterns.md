@@ -21,6 +21,8 @@ When recovering prototype style, measure from LocalPort source or a fresh LocalP
 - top search control: about 26pt high and 300pt wide
 - service fallback icon: 20pt rounded square with uppercase first letter
 
+The content-pane top context bar should not be bounded by a hard horizontal line. With the AppKit full-size transparent titlebar, set the native window titlebar separator to hidden and do not add a visible `ShellTopBar` bottom `Divider`; otherwise the separator becomes the perceived titlebar bottom and makes the bar look too short compared with the LocalPort prototype.
+
 Avoid:
 
 - dashboard home pages

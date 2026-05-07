@@ -13,6 +13,7 @@ final class RelayDockWindowController: NSWindowController {
         window.minSize = NSSize(width: 920, height: 620)
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
         RelayDockWindowController.centerWindowOnPrimaryScreen(window)

@@ -352,6 +352,80 @@ sys.exit(1)
 PYTHON
 }
 
+assert_no_topbar_hard_separator() {
+  local screenshot_path="$1"
+  local page_slug="$2"
+  local separator_output=""
+  local separator_status="0"
+
+  set +e
+  separator_output="$(
+    python3 - "${screenshot_path}" <<'PYTHON' 2>&1
+import sys
+from pathlib import Path
+from PIL import Image
+
+image_path = Path(sys.argv[1])
+image = Image.open(image_path).convert("RGB")
+width, height = image.size
+pixels = image.load()
+
+left = width
+right = 0
+top = height
+bottom = 0
+
+for y in range(height):
+    for x in range(width):
+        if max(pixels[x, y]) > 10:
+            left = min(left, x)
+            right = max(right, x)
+            top = min(top, y)
+            bottom = max(bottom, y)
+
+if right <= left or bottom <= top:
+    print("WINDOW_CONTENT_NOT_FOUND")
+    sys.exit(2)
+
+content_width = right - left + 1
+scale = content_width / 1120.0
+content_left = left + round(220 * scale)
+content_right = right - round(8 * scale)
+scan_top = top + round(24 * scale)
+scan_bottom = min(top + round(56 * scale), bottom)
+
+if content_right <= content_left or scan_bottom <= scan_top:
+    print("SCAN_REGION_INVALID")
+    sys.exit(2)
+
+for y in range(scan_top, scan_bottom + 1):
+    sample_count = 0
+    separator_count = 0
+
+    for x in range(content_left, content_right + 1, 4):
+        red, green, blue = pixels[x, y]
+        average = (red + green + blue) / 3
+        sample_count += 1
+
+        if abs(red - green) <= 3 and abs(green - blue) <= 3 and 225 <= average <= 245:
+            separator_count += 1
+
+    ratio = separator_count / max(sample_count, 1)
+    if ratio >= 0.50:
+        print(f"TOPBAR_SEPARATOR_DETECTED:y={y}:ratio={ratio:.2f}")
+        sys.exit(1)
+
+sys.exit(0)
+PYTHON
+  )"
+  separator_status="$?"
+  set -e
+
+  if [[ "${separator_status}" != "0" ]]; then
+    fail_with_context "Topbar visual QA failed for '${page_slug}': ${separator_output}. Hide AppKit titlebar separators and avoid drawing a visible ShellTopBar divider."
+  fi
+}
+
 select_shell_page() {
   local page_slug="$1"
   local page_title="$2"
@@ -633,6 +707,7 @@ for page_entry in "${SHELL_PAGES[@]}"; do
   locate_window_rect >/dev/null
   WINDOW_RECT="${LAST_WINDOW_RECT}"
   capture_window_screenshot "${WINDOW_RECT}" "${OUTPUT_PATH}"
+  assert_no_topbar_hard_separator "${OUTPUT_PATH}" "${PAGE_SLUG}"
   GENERATED_SCREENSHOTS+=("${OUTPUT_PATH}")
 done
 

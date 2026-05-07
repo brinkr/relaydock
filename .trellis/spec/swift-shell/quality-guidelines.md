@@ -13,6 +13,7 @@
 - For prototype-style fixes, inspect a current LocalPort source file or rendered screenshot alongside RelayDock. Do not judge alignment from RelayDock's screenshot alone.
 - Use AppKit for the window chrome and traffic-light behavior. Do not use a cross-window AppKit `NSToolbar` when it causes the top bar to span the sidebar or use oversized capsule controls.
 - Visual QA must inspect the actual top region of the screenshot: the sidebar should begin at the window top with traffic lights, the content-pane top bar should start to the right of the sidebar, and the content must not start below an awkward blank strip.
+- Visual QA must treat a hard horizontal separator across the content-pane top bar as a failure. Check both sources: AppKit's transparent titlebar separator and any SwiftUI `ShellTopBar` bottom divider.
 - For native screenshot automation, launch RelayDock through a temporary `.app` bundle instead of the raw SwiftPM binary so macOS activation, Accessibility, Screen Recording, and Computer Use can identify the app consistently.
 - Visual QA must fail on black screenshots or missing window rectangles. A black fallback screenshot is not evidence that the UI was inspected.
 - Visual QA must not treat full-screen fallback screenshots as success when the RelayDock window rectangle cannot be located. Fail with the temporary app bundle, bundle id, pid, known window rect, and a keep-open rerun hint instead.
