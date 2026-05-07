@@ -95,7 +95,7 @@ struct RegistryView: View {
 
             if let snapshot {
                 ScrollView {
-                    LazyVStack(spacing: 1) {
+                    LazyVStack(spacing: 0) {
                         ForEach(snapshot.hosts) { host in
                             RegistryHostRow(
                                 host: host,
@@ -150,11 +150,11 @@ private struct RegistryHostRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Image(systemName: host.osHint.systemImage)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
+                    .foregroundStyle(selected ? RelayDockColor.sidebarAccent : .secondary)
+                    .frame(width: 15)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(host.name)
@@ -175,7 +175,7 @@ private struct RegistryHostRow: View {
                     .frame(width: 6, height: 6)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .background {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(selected ? RelayDockColor.sidebarSelection : Color.clear)
@@ -269,9 +269,9 @@ private struct RegistryHostHeader: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: host.osHint.systemImage)
-                .font(.system(size: 24))
+                .font(.system(size: 22))
                 .foregroundStyle(.secondary)
-                .frame(width: 34, height: 34)
+                .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -300,7 +300,7 @@ private struct RegistryHostHeader: View {
             .buttonStyle(.borderless)
         }
         .padding(.horizontal, 16)
-        .frame(height: 58)
+        .frame(height: 54)
         .background(RelayDockColor.contentBackground)
     }
 
@@ -354,42 +354,121 @@ private struct RegistryPresetRow: View {
     let preset: RegistryPreset
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Text(preset.name)
-                    .font(.system(size: 11, weight: .semibold))
+        HStack(spacing: 8) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .frame(width: 12)
 
-                if preset.derivedFrom != nil {
-                    Text("派生")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(RelayDockColor.controlBackground)
-                        }
-                }
+            Text(preset.name)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .frame(minWidth: 96, alignment: .leading)
+
+            if preset.derivedFrom != nil {
+                Text("派生")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(RelayDockColor.controlBackground)
+                    }
+            }
+
+            Text(ruleSummary)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(minHeight: 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var ruleSummary: String {
+        if preset.rules.isEmpty {
+            return "没有规则"
+        }
+
+        return preset.rules
+            .map { "\($0.serviceName) -> \($0.targetLabel)" }
+            .joined(separator: "   ")
+    }
+}
+
+private struct RegistryRuleGroup: Identifiable {
+    let state: RegistryRuleRuntimeState
+    let rules: [RegistryRule]
+
+    var id: String {
+        state.rawValue
+    }
+
+    var title: String {
+        state.groupTitle
+    }
+
+    var tint: Color {
+        state.color
+    }
+}
+
+private struct RegistryRuleGroupBand: View {
+    let group: RegistryRuleGroup
+    let onEditMapping: (RegistryRule) -> Void
+    let onEditRule: (RegistryRule) -> Void
+    let onRecoverRule: (String) -> Void
+    let onRetryRule: (String) -> Void
+    let onStopRule: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(group.tint)
+                    .frame(width: 5, height: 5)
+
+                Text("\(group.title) \(group.rules.count)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
                 Spacer()
             }
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(RelayDockColor.groupHeaderBackground)
 
-            ForEach(preset.rules, id: \.serviceName) { rule in
-                HStack(spacing: 6) {
-                    Text(rule.serviceName)
-                        .font(.system(size: 10))
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                    Text(rule.targetLabel)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+            ForEach(Array(group.rules.enumerated()), id: \.element.id) { index, rule in
+                RegistryRuleRow(
+                    rule: rule,
+                    onEditMapping: onEditMapping,
+                    onEditRule: onEditRule,
+                    onRecoverRule: onRecoverRule,
+                    onRetryRule: onRetryRule,
+                    onStopRule: onStopRule
+                )
+
+                if index < group.rules.count - 1 {
+                    Divider()
+                        .padding(.leading, 38)
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RelayDockColor.listBandBackground)
+        .overlay {
+            VStack(spacing: 0) {
+                Divider()
+                Spacer()
+                Divider()
+            }
+        }
     }
 }
 
@@ -405,6 +484,17 @@ private struct RegistryRulesSection: View {
     let onRecoverRule: (String) -> Void
     let onRetryRule: (String) -> Void
     let onStopRule: (String) -> Void
+
+    private var ruleGroups: [RegistryRuleGroup] {
+        RegistryRuleRuntimeState.registryDisplayOrder.compactMap { state in
+            let groupRules = rules.filter { $0.runtimeState == state }
+            guard !groupRules.isEmpty else {
+                return nil
+            }
+
+            return RegistryRuleGroup(state: state, rules: groupRules)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -438,28 +528,16 @@ private struct RegistryRulesSection: View {
             if rules.isEmpty {
                 RegistryRulesEmptyState()
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(rules.enumerated()), id: \.element.id) { index, rule in
-                        RegistryRuleRow(
-                            rule: rule,
+                LazyVStack(spacing: 8) {
+                    ForEach(ruleGroups) { group in
+                        RegistryRuleGroupBand(
+                            group: group,
                             onEditMapping: onEditMapping,
                             onEditRule: onEditRule,
                             onRecoverRule: onRecoverRule,
                             onRetryRule: onRetryRule,
                             onStopRule: onStopRule
                         )
-                        if index < rules.count - 1 {
-                            Divider()
-                                .padding(.leading, 38)
-                        }
-                    }
-                }
-                .background(RelayDockColor.listBandBackground)
-                .overlay {
-                    VStack(spacing: 0) {
-                        Divider()
-                        Spacer()
-                        Divider()
                     }
                 }
             }
@@ -476,33 +554,40 @@ private struct RegistryRuleRow: View {
     let onStopRule: (String) -> Void
 
     private enum Metrics {
-        static let statusWidth: CGFloat = 76
-        static let actionWidth: CGFloat = 164
+        static let serviceWidth: CGFloat = 126
+        static let portWidth: CGFloat = 82
+        static let providerWidth: CGFloat = 108
+        static let statusWidth: CGFloat = 72
+        static let actionWidth: CGFloat = 108
     }
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 8) {
             ServiceGlyph(name: rule.serviceName)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text(rule.serviceName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(1)
+            Text(rule.serviceName)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .frame(width: Metrics.serviceWidth, alignment: .leading)
 
-                    Text(rule.alias)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+            Text(rule.alias)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 82, maxWidth: .infinity, alignment: .leading)
 
-                Text("本地 \(rule.portSummary)  |  \(rule.providerLabel)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text("本地 \(rule.portSummary)")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: Metrics.portWidth, alignment: .leading)
 
-            Spacer()
+            Text(rule.providerLabel)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: Metrics.providerWidth, alignment: .leading)
 
             Label(rule.runtimeState.title, systemImage: "circle.fill")
                 .font(.system(size: 10, weight: .medium))
@@ -511,36 +596,51 @@ private struct RegistryRuleRow: View {
                 .frame(width: Metrics.statusWidth, alignment: .leading)
 
             HStack(spacing: 8) {
-                Button("映射") {
+                actionButton("映射") {
                     onEditMapping(rule)
                 }
 
-                Button("规则") {
+                actionButton("规则") {
                     onEditRule(rule)
                 }
 
-                if rule.runtimeState == .running {
-                    Button("停止", role: .destructive) {
-                        onStopRule(rule.id)
-                    }
-                } else if rule.runtimeState == .recoverable {
-                    Button("恢复") {
-                        onRecoverRule(rule.id)
-                    }
-                } else if rule.runtimeState == .error {
-                    Button("重试") {
-                        onRetryRule(rule.id)
-                    }
-                }
+                runtimeActionButton
             }
             .font(.system(size: 11, weight: .medium))
             .buttonStyle(.borderless)
-            .controlSize(.small)
+            .controlSize(.mini)
             .frame(width: Metrics.actionWidth, alignment: .trailing)
         }
         .padding(.horizontal, 10)
-        .frame(minHeight: 43)
-        .padding(.vertical, 3)
+        .frame(height: 34)
+    }
+
+    private func actionButton(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
+        Button(title, role: role, action: action)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(width: 30, alignment: .trailing)
+    }
+
+    @ViewBuilder
+    private var runtimeActionButton: some View {
+        switch rule.runtimeState {
+        case .running:
+            actionButton("停止", role: .destructive) {
+                onStopRule(rule.id)
+            }
+        case .recoverable:
+            actionButton("恢复") {
+                onRecoverRule(rule.id)
+            }
+        case .error:
+            actionButton("重试") {
+                onRetryRule(rule.id)
+            }
+        case .stopped:
+            Color.clear
+                .frame(width: 30, height: 1)
+        }
     }
 }
 
@@ -2114,6 +2214,23 @@ private extension RegistryRuleDraft {
 }
 
 private extension RegistryRuleRuntimeState {
+    static var registryDisplayOrder: [RegistryRuleRuntimeState] {
+        [.running, .recoverable, .error, .stopped]
+    }
+
+    var groupTitle: String {
+        switch self {
+        case .running:
+            "运行中"
+        case .recoverable:
+            "待恢复"
+        case .stopped:
+            "已停止"
+        case .error:
+            "异常"
+        }
+    }
+
     var title: String {
         switch self {
         case .running:

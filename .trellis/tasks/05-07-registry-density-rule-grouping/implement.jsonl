@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell UI routing and quality checklist for native macOS views"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Registry page requirements for native layout, compact rule rows, and stable action/status alignment"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Visual QA and row stability requirements for UI shell changes"}
+{"file": ".trellis/tasks/05-06-correct-prototype-ui-style-drift/research/gemini-batch-ui-review.md", "reason": "Source review that selected Registry density and rule grouping as a P2 follow-up"}
+{"file": ".trellis/tasks/05-06-correct-prototype-ui-style-drift/research/localport-style-audit.md", "reason": "Measured LocalPort registry and shell reference details"}

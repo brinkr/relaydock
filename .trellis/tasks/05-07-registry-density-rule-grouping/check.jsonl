@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell UI quality checklist for review"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Registry compactness and stable row/action rules"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Visual QA and screenshot inspection requirements"}
+{"file": ".trellis/tasks/05-06-correct-prototype-ui-style-drift/research/gemini-batch-ui-review.md", "reason": "Review expected follow-up scope and known Gemini false-positive cautions"}
+{"file": ".trellis/tasks/05-06-correct-prototype-ui-style-drift/research/localport-style-audit.md", "reason": "Prototype measurements used for visual comparison"}

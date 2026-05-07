@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "05-07-registry-density-rule-grouping"
+  ],
   "parent": null,
   "relatedFiles": [],
   "notes": "",

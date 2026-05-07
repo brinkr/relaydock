@@ -66,6 +66,8 @@ Use a left host list and right detail pane. Prefer modal/sheet flows for SSH com
 
 Keep rule rows compact and single-line. Service names, status labels, and action clusters should truncate or align inside stable columns instead of wrapping into taller rows.
 
+When registry rules include mixed runtime states, group them by state only as a scanning aid; the grouping must not create new runtime behavior or hide rules. Keep row actions in fixed slots: configuration actions first (`映射`, `规则`), followed by exactly one state action (`停止`, `恢复`, or `重试`) when applicable. Use fixed widths for service, alias, port, provider, status, and action columns so long aliases or provider labels truncate rather than shifting the action cluster.
+
 ## Logs And Diagnostics
 
 `日志与诊断` is a diagnostic workspace, not a themed placeholder.
