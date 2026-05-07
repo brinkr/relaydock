@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "05-07-improve-tunnel-runtime-observability"
+  ],
   "parent": "05-06-correct-prototype-ui-style-drift",
   "relatedFiles": [],
   "notes": "",

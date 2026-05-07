@@ -359,6 +359,9 @@ loadRunRecoverySnapshot()
   - `runtime_id = null`
   - `recovery_id = recovery-{rule_id}`
 - Provider label, alias, host endpoint, and port summary must be derived from saved domain configuration.
+- Runtime rows may include `entry_url` derived by Rust from `LocalAlias` plus the effective local port. Do not show a bare `.localhost` hostname as the only launchable entry when the service listens on a non-default port; `ssh-18317.localhost` without `:18317` goes to port 80 and is expected to fail without a reverse proxy.
+- `health_summary` belongs on the host/provider summary level. Do not duplicate the same SSH-target latency/health result on every row unless a row has a distinct binding-level failure.
+- `events` in `run_recovery_snapshot` are the source of truth for runtime/provider diagnostics; Swift may filter and render them, not invent them.
 - Swift must render the structured snapshot and keep only UI-local state such as expansion and sheet drafts.
 
 ### 4. Validation & Error Matrix
@@ -366,20 +369,24 @@ loadRunRecoverySnapshot()
 - SQLite open/load failure -> `storage_failed`.
 - Invalid saved configuration -> `registry_validation_failed`.
 - Missing provider label on a valid rule -> fallback label `未命名链路`.
+- Missing event history -> `events: []`.
+- No alias or no local port -> `entry_url: null`.
 - Host with no rules -> omitted from the run/recovery snapshot.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: user imports an SSH command in `资源登记`, saves two rules, reloads `运行与恢复`, and sees two recoverable rows under that host.
+- Good: user imports an SSH command in `资源登记`, saves two rules, reloads `运行与恢复`, and sees two recoverable rows under that host with full local entry URLs such as `http://ssh-18317.localhost:18317/`.
 - Base: empty first launch shows `没有运行或待恢复项目`.
 - Bad: production bridge load returns hardcoded `Mac mini (M2) - 家` demo rows when storage is empty.
+- Bad: Swift formats `http://{alias}/` for a non-default port row and implies that `.localhost` should carry port routing.
 
 ### 6. Tests Required
 
 - Rust unit test for empty storage returning an empty run/recovery snapshot.
 - Rust unit test for saved registry rules projecting as recoverable rows with alias, provider label, port summary, and recoverable actions.
+- Rust unit test for projected `entry_url` including the effective local port.
 - Rust bridge command round-trip must still assert typed `run_recovery_snapshot` output.
-- Swift build must compile unchanged bridge models and run/recovery view model.
+- Swift build must compile bridge models and run/recovery view model when optional `events`, `health_summary`, and `entry_url` fields are present.
 
 ### 7. Wrong vs Correct
 

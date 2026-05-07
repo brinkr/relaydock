@@ -10,7 +10,9 @@ use crate::providers::{
     SystemPidProcessController,
 };
 use crate::runtime::{
-    uptime_seconds_since, OverrideReason, ProviderProcessKind, ProviderProcessRecord, RuntimeStatus,
+    uptime_seconds_since, LocalTunnelHealthChecker, OverrideReason, ProviderProcessKind,
+    ProviderProcessRecord, RuntimeErrorCode, RuntimeErrorInfo, RuntimeEvent, RuntimeEventKind,
+    RuntimeEventLevel, RuntimeStatus,
 };
 use crate::ssh_import::{parse_ssh_command, ParseSshCommandCommand, ParseSshCommandResult};
 use crate::storage::{
@@ -18,6 +20,7 @@ use crate::storage::{
     StorageValidationError,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(not(test))]
 use std::{env, fs, path::PathBuf};
@@ -187,6 +190,8 @@ pub struct RunRecoverySnapshotResult {
     pub hosts: Vec<RunRecoveryHost>,
     pub summary: RunRecoverySummary,
     pub last_action: Option<RunRecoveryActionStatus>,
+    #[serde(default)]
+    pub events: Vec<RunRecoveryEvent>,
 }
 
 impl RunRecoverySnapshotResult {
@@ -205,7 +210,33 @@ pub struct RunRecoveryHost {
     pub name: String,
     pub endpoint: String,
     pub provider_summary: String,
+    #[serde(default)]
+    pub health_summary: Option<String>,
     pub rows: Vec<RunRecoveryRow>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunRecoveryEvent {
+    pub id: String,
+    pub level: RunRecoveryEventLevel,
+    pub kind: String,
+    pub occurred_at_epoch_seconds: u64,
+    pub component: String,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub host_id: Option<String>,
+    pub rule_id: Option<String>,
+    pub runtime_id: Option<String>,
+    pub provider_target_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunRecoveryEventLevel {
+    Info,
+    Notice,
+    Warning,
+    Error,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,6 +248,7 @@ pub struct RunRecoveryRow {
     pub host_id: String,
     pub service_name: String,
     pub alias: String,
+    pub entry_url: Option<String>,
     pub provider_label: String,
     pub port_summary: String,
     pub state: RunRecoveryRowState,
@@ -292,7 +324,12 @@ impl RunRecoverySummary {
         let issue_count = hosts
             .iter()
             .flat_map(|host| host.rows.iter())
-            .filter(|row| row.state == RunRecoveryRowState::Error)
+            .filter(|row| {
+                matches!(
+                    row.state,
+                    RunRecoveryRowState::Error | RunRecoveryRowState::Reconnecting
+                )
+            })
             .count();
         let recoverable_count = hosts
             .iter()
@@ -697,7 +734,11 @@ pub fn load_run_recovery_snapshot() -> RunRecoverySnapshotResult {
 #[cfg(not(test))]
 fn load_run_recovery_snapshot_result() -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
     let mut store = open_registry_store()?;
-    load_run_recovery_snapshot_from_store(&mut store, &SystemPidProcessController)
+    load_run_recovery_snapshot_from_store(
+        &mut store,
+        &SystemPidProcessController,
+        &crate::runtime::TcpLocalTunnelHealthChecker::default(),
+    )
 }
 
 pub fn load_registry_snapshot() -> Result<RegistrySnapshotResult, Box<BridgeError>> {
@@ -1186,6 +1227,7 @@ fn demo_run_recovery_snapshot() -> RunRecoverySnapshotResult {
             name: "Mac mini (M2) - 家".to_string(),
             endpoint: "admin@192.168.1.5".to_string(),
             provider_summary: "SSH · 家庭宽带 / Tailscale · 家里".to_string(),
+            health_summary: Some("SSH · 家庭宽带 · 3 运行 / 1 异常".to_string()),
             rows: vec![
                 connected_demo_row(
                     "react-frontend",
@@ -1268,6 +1310,7 @@ fn demo_run_recovery_snapshot() -> RunRecoverySnapshotResult {
             name: "Ubuntu Dev Server".to_string(),
             endpoint: "root@10.0.0.12".to_string(),
             provider_summary: "SSH · 内网直连".to_string(),
+            health_summary: Some("SSH · 内网 · 1 运行 / 1 异常".to_string()),
             rows: vec![
                 connected_demo_row_for_host(
                     "host-ubuntu-dev",
@@ -1297,6 +1340,7 @@ fn demo_run_recovery_snapshot() -> RunRecoverySnapshotResult {
         summary: RunRecoverySummary::from_hosts(&hosts),
         hosts,
         last_action: None,
+        events: Vec::new(),
     }
 }
 
@@ -1336,6 +1380,7 @@ fn connected_demo_row_for_host(
         host_id: host_id.to_string(),
         service_name: service_name.to_string(),
         alias: alias.to_string(),
+        entry_url: entry_url_from_alias_and_ports(alias, &[first_port_from_summary(port_summary)]),
         provider_label: provider_label.to_string(),
         port_summary: port_summary.to_string(),
         state: RunRecoveryRowState::Connected,
@@ -1387,6 +1432,10 @@ fn reconnecting_demo_row_for_host(spec: DemoRowSpec<'_>) -> RunRecoveryRow {
         host_id: spec.host_id.to_string(),
         service_name: spec.service_name.to_string(),
         alias: spec.alias.to_string(),
+        entry_url: entry_url_from_alias_and_ports(
+            spec.alias,
+            &[first_port_from_summary(spec.port_summary)],
+        ),
         provider_label: spec.provider_label.to_string(),
         port_summary: spec.port_summary.to_string(),
         state: RunRecoveryRowState::Reconnecting,
@@ -1427,6 +1476,7 @@ fn error_demo_row(
         host_id: "host-home-mac-mini".to_string(),
         service_name: service_name.to_string(),
         alias: alias.to_string(),
+        entry_url: entry_url_from_alias_and_ports(alias, &[first_port_from_summary(port_summary)]),
         provider_label: provider_label.to_string(),
         port_summary: port_summary.to_string(),
         state: RunRecoveryRowState::Error,
@@ -1466,6 +1516,7 @@ fn recoverable_demo_row(
         host_id: "host-home-mac-mini".to_string(),
         service_name: service_name.to_string(),
         alias: alias.to_string(),
+        entry_url: entry_url_from_alias_and_ports(alias, &[first_port_from_summary(port_summary)]),
         provider_label: provider_label.to_string(),
         port_summary: port_summary.to_string(),
         state: RunRecoveryRowState::Recoverable,
@@ -1554,6 +1605,7 @@ fn load_registry_snapshot_from_store(
 fn load_run_recovery_snapshot_from_store(
     store: &mut RelayDockStore,
     process_controller: &impl ProviderProcessController,
+    health_checker: &impl LocalTunnelHealthChecker,
 ) -> Result<RunRecoverySnapshotResult, Box<BridgeError>> {
     let configuration = store
         .load_configuration()
@@ -1570,6 +1622,7 @@ fn load_run_recovery_snapshot_from_store(
         &mut runtime_snapshot,
         &mut recovery_collection,
         process_controller,
+        health_checker,
         SystemTime::now(),
     )?;
 
@@ -1673,6 +1726,35 @@ where
     let rule_id = RuleId::from(command.rule_id.trim().to_string());
     let (host, rule, provider_target) = find_start_rule_context(&configuration, &rule_id)?;
     let runtime_instance_id = RuntimeInstanceId::from(format!("runtime-{rule_id}"));
+    let launch_plan = provider
+        .build_launch_plan(host, rule, provider_target, runtime_instance_id.clone())
+        .map_err(provider_error_to_bridge)?;
+    let requested_event = RuntimeEvent::new(
+        RuntimeEventKind::SshStartRequested,
+        RuntimeEventLevel::Info,
+        "准备启动 OpenSSH 隧道",
+        SystemTime::now(),
+    )
+    .with_detail(format!(
+        "{} | bindings={}",
+        launch_plan.command.display_command(),
+        launch_plan
+            .runtime_instance
+            .local_bindings
+            .iter()
+            .map(|binding| format!(
+                "{}:{}:{}",
+                binding.local_port, binding.remote_host, binding.remote_port
+            ))
+            .collect::<Vec<_>>()
+            .join(",")
+    ))
+    .with_rule_context(
+        rule.host_id.clone(),
+        rule.id.clone(),
+        provider_target.id.clone(),
+        runtime_instance_id.clone(),
+    );
     let mut handle = provider
         .start_rule(host, rule, provider_target, runtime_instance_id.clone())
         .map_err(provider_error_to_bridge)?;
@@ -1683,6 +1765,7 @@ where
         .load_runtime_snapshot()
         .map_err(storage_error_to_bridge)?
         .unwrap_or_default();
+    push_runtime_event(&mut runtime_snapshot, requested_event);
 
     let process_record = match &observation.status {
         ProviderProcessStatus::Running { pid: Some(pid) } => Some(ProviderProcessRecord {
@@ -1699,8 +1782,48 @@ where
 
     upsert_runtime_instance(&mut runtime_snapshot, observation.runtime_instance);
     if let Some(process_record) = process_record {
+        push_runtime_event(
+            &mut runtime_snapshot,
+            RuntimeEvent::new(
+                RuntimeEventKind::SshStartSucceeded,
+                RuntimeEventLevel::Notice,
+                "OpenSSH 隧道已启动",
+                SystemTime::now(),
+            )
+            .with_detail(format!(
+                "{} | pid={}",
+                process_record.command_summary, process_record.pid
+            ))
+            .with_rule_context(
+                rule.host_id.clone(),
+                rule.id.clone(),
+                provider_target.id.clone(),
+                runtime_instance_id.clone(),
+            ),
+        );
         upsert_provider_process_record(&mut runtime_snapshot, process_record);
     } else {
+        let diagnostic_detail = observation
+            .diagnostic
+            .as_ref()
+            .and_then(|diagnostic| diagnostic.detail.clone())
+            .unwrap_or_else(|| "provider did not expose running pid metadata".to_string());
+        push_runtime_event(
+            &mut runtime_snapshot,
+            RuntimeEvent::new(
+                RuntimeEventKind::SshStartFailed,
+                RuntimeEventLevel::Error,
+                "OpenSSH 隧道启动未进入可观测运行态",
+                SystemTime::now(),
+            )
+            .with_detail(diagnostic_detail)
+            .with_rule_context(
+                rule.host_id.clone(),
+                rule.id.clone(),
+                provider_target.id.clone(),
+                runtime_instance_id.clone(),
+            ),
+        );
         remove_provider_process_record(&mut runtime_snapshot, &runtime_instance_id);
     }
     store
@@ -2516,6 +2639,7 @@ fn reconcile_runtime_processes(
     runtime_snapshot: &mut RuntimeSnapshot,
     recovery_collection: &mut RecoveryCollection,
     process_controller: &impl ProviderProcessController,
+    health_checker: &impl LocalTunnelHealthChecker,
     observed_at: SystemTime,
 ) -> Result<bool, Box<BridgeError>> {
     let mut changed = false;
@@ -2539,17 +2663,85 @@ fn reconcile_runtime_processes(
 
         if is_running {
             let instance = &mut runtime_snapshot.instances[instance_index];
-            if instance.status != RuntimeStatus::Connected {
-                instance.mark_connected(process_record.started_at.unwrap_or(observed_at));
-                changed = true;
-            }
+            let health = health_checker.check(instance);
+            let mut event: Option<RuntimeEvent> = None;
 
-            if let Some(started_at) = instance.started_at {
-                let uptime_seconds = uptime_seconds_since(started_at, observed_at);
-                if instance.uptime_seconds != uptime_seconds {
-                    instance.uptime_seconds = uptime_seconds;
+            if health.healthy {
+                let was_connected = instance.status == RuntimeStatus::Connected;
+                if !was_connected {
+                    event = Some(runtime_event(
+                        RuntimeEventKind::RuntimeHealthOk,
+                        RuntimeEventLevel::Notice,
+                        "本地隧道监听恢复可用",
+                        Some(
+                            "pid still exists and all loopback listener checks passed".to_string(),
+                        ),
+                        observed_at,
+                        instance,
+                    ));
+                }
+                instance.mark_connected(process_record.started_at.unwrap_or(observed_at));
+                if !was_connected {
                     changed = true;
                 }
+
+                if let Some(started_at) = instance.started_at {
+                    let uptime_seconds = uptime_seconds_since(started_at, observed_at);
+                    if instance.uptime_seconds != uptime_seconds {
+                        instance.uptime_seconds = uptime_seconds;
+                        changed = true;
+                    }
+                }
+            } else {
+                let was_health_failure = instance.status == RuntimeStatus::Reconnecting
+                    && instance.last_error.as_ref().is_some_and(|error| {
+                        error.code == RuntimeErrorCode::TunnelHealthCheckFailed
+                    });
+                let detail = health
+                    .checked_bindings
+                    .iter()
+                    .map(|binding| {
+                        format!(
+                            "local_port={} healthy={} detail={}",
+                            binding.local_port,
+                            binding.healthy,
+                            binding.detail.as_deref().unwrap_or("-")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let error = RuntimeErrorInfo::new(
+                    RuntimeErrorCode::TunnelHealthCheckFailed,
+                    "本地隧道监听不可达",
+                )
+                .with_detail(detail.clone());
+                if was_health_failure {
+                    instance.status = RuntimeStatus::Reconnecting;
+                    instance.last_error = Some(error);
+                } else {
+                    instance.mark_reconnecting("本地隧道监听不可达");
+                    instance.last_error = Some(error);
+                    event = Some(runtime_event(
+                        RuntimeEventKind::RuntimeHealthWarning,
+                        RuntimeEventLevel::Warning,
+                        "OpenSSH 进程仍在，但本地隧道监听不可达",
+                        Some(detail),
+                        observed_at,
+                        instance,
+                    ));
+                    changed = true;
+                }
+                if let Some(started_at) = instance.started_at {
+                    let uptime_seconds = uptime_seconds_since(started_at, observed_at);
+                    if instance.uptime_seconds != uptime_seconds {
+                        instance.uptime_seconds = uptime_seconds;
+                        changed = true;
+                    }
+                }
+            }
+
+            if let Some(event) = event {
+                push_runtime_event(runtime_snapshot, event);
             }
         } else {
             let instance = runtime_snapshot.instances.remove(instance_index);
@@ -2559,6 +2751,17 @@ fn reconcile_runtime_processes(
                     override_record.runtime_instance_id != runtime_instance_id
                 });
             remove_provider_process_record(runtime_snapshot, &runtime_instance_id);
+            push_runtime_event(
+                runtime_snapshot,
+                runtime_event(
+                    RuntimeEventKind::RuntimeRecovered,
+                    RuntimeEventLevel::Notice,
+                    "OpenSSH 进程已退出，运行项进入待恢复",
+                    Some(format!("pid={} no longer exists", process_record.pid)),
+                    observed_at,
+                    &instance,
+                ),
+            );
             upsert_recovery_item(recovery_collection, instance.stop(observed_at));
             changed = true;
         }
@@ -2646,6 +2849,7 @@ fn run_recovery_snapshot_from_store_snapshots(
         summary: RunRecoverySummary::from_hosts(&hosts),
         hosts,
         last_action,
+        events: runtime_events_from_snapshot(runtime_snapshot),
     }
 }
 
@@ -2673,6 +2877,7 @@ fn run_recovery_host_from_domain(
         name: host.name.clone(),
         endpoint: host_endpoint(host),
         provider_summary: provider_summary_for_host(host),
+        health_summary: host_health_summary(configuration, runtime_snapshot, host),
         rows,
     })
 }
@@ -2711,6 +2916,7 @@ fn run_recovery_row_from_domain(
             .as_ref()
             .map(|alias| alias.hostname.clone())
             .unwrap_or_default(),
+        entry_url: entry_url_for_rule(rule),
         provider_label: provider_label(configuration, &rule.provider_target_id),
         port_summary: port_summary(rule),
         state: RunRecoveryRowState::Recoverable,
@@ -2742,6 +2948,7 @@ fn run_recovery_row_from_recovery_item(
             .as_ref()
             .map(|alias| alias.hostname.clone())
             .unwrap_or_default(),
+        entry_url: entry_url_for_recovery_item(rule, recovery_item),
         provider_label: provider_label(configuration, &recovery_item.provider_target_id),
         port_summary: recovery_port_summary(recovery_item),
         state: RunRecoveryRowState::Recoverable,
@@ -2805,6 +3012,7 @@ fn run_recovery_row_from_runtime(
             .as_ref()
             .map(|alias| alias.hostname.clone())
             .unwrap_or_default(),
+        entry_url: entry_url_for_runtime(rule, instance),
         provider_label: provider_label(configuration, &instance.provider_target_id),
         port_summary: runtime_port_summary(instance),
         state,
@@ -2820,6 +3028,147 @@ fn run_recovery_row_from_runtime(
             }),
         actions,
     }
+}
+
+fn runtime_event(
+    kind: RuntimeEventKind,
+    level: RuntimeEventLevel,
+    summary: impl Into<String>,
+    detail: Option<String>,
+    occurred_at: SystemTime,
+    runtime: &crate::runtime::RuntimeInstance,
+) -> RuntimeEvent {
+    let mut event =
+        RuntimeEvent::new(kind, level, summary, occurred_at).with_runtime_context(runtime);
+    if let Some(detail) = detail {
+        event = event.with_detail(detail);
+    }
+    event
+}
+
+fn push_runtime_event(snapshot: &mut RuntimeSnapshot, event: RuntimeEvent) {
+    snapshot.events.push(event);
+    snapshot
+        .events
+        .sort_by_key(|event| std::cmp::Reverse(epoch_seconds(event.occurred_at)));
+    snapshot.events.truncate(200);
+}
+
+fn runtime_events_from_snapshot(snapshot: &RuntimeSnapshot) -> Vec<RunRecoveryEvent> {
+    let mut events = snapshot
+        .events
+        .iter()
+        .map(run_recovery_event_from_runtime_event)
+        .collect::<Vec<_>>();
+    events.sort_by_key(|event| std::cmp::Reverse(event.occurred_at_epoch_seconds));
+    events.truncate(80);
+    events
+}
+
+fn run_recovery_event_from_runtime_event(event: &RuntimeEvent) -> RunRecoveryEvent {
+    RunRecoveryEvent {
+        id: run_recovery_event_id(event),
+        level: run_recovery_event_level(&event.level),
+        kind: runtime_event_kind_name(&event.kind).to_string(),
+        occurred_at_epoch_seconds: epoch_seconds(event.occurred_at),
+        component: runtime_event_component(&event.kind).to_string(),
+        summary: event.summary.clone(),
+        detail: event.detail.clone(),
+        host_id: event.host_id.as_ref().map(ToString::to_string),
+        rule_id: event.rule_id.as_ref().map(ToString::to_string),
+        runtime_id: event.runtime_instance_id.as_ref().map(ToString::to_string),
+        provider_target_id: event.provider_target_id.as_ref().map(ToString::to_string),
+    }
+}
+
+fn run_recovery_event_id(event: &RuntimeEvent) -> String {
+    [
+        event.id.as_str(),
+        event.host_id.as_ref().map(|id| id.as_str()).unwrap_or("-"),
+        event.rule_id.as_ref().map(|id| id.as_str()).unwrap_or("-"),
+        event
+            .runtime_instance_id
+            .as_ref()
+            .map(|id| id.as_str())
+            .unwrap_or("-"),
+    ]
+    .join("::")
+}
+
+fn run_recovery_event_level(level: &RuntimeEventLevel) -> RunRecoveryEventLevel {
+    match level {
+        RuntimeEventLevel::Info => RunRecoveryEventLevel::Info,
+        RuntimeEventLevel::Notice => RunRecoveryEventLevel::Notice,
+        RuntimeEventLevel::Warning => RunRecoveryEventLevel::Warning,
+        RuntimeEventLevel::Error => RunRecoveryEventLevel::Error,
+    }
+}
+
+fn runtime_event_kind_name(kind: &RuntimeEventKind) -> &'static str {
+    match kind {
+        RuntimeEventKind::SshStartRequested => "ssh_start_requested",
+        RuntimeEventKind::SshStartSucceeded => "ssh_start_succeeded",
+        RuntimeEventKind::SshStartFailed => "ssh_start_failed",
+        RuntimeEventKind::RuntimeHealthOk => "runtime_health_ok",
+        RuntimeEventKind::RuntimeObserved => "runtime_observed",
+        RuntimeEventKind::RuntimeHealthWarning => "runtime_health_warning",
+        RuntimeEventKind::RuntimeRecovered => "runtime_recovered",
+    }
+}
+
+fn runtime_event_component(kind: &RuntimeEventKind) -> &'static str {
+    match kind {
+        RuntimeEventKind::SshStartRequested
+        | RuntimeEventKind::SshStartSucceeded
+        | RuntimeEventKind::SshStartFailed => "provider.openssh",
+        RuntimeEventKind::RuntimeHealthOk | RuntimeEventKind::RuntimeHealthWarning => {
+            "runtime.health"
+        }
+        RuntimeEventKind::RuntimeObserved => "runtime.health",
+        RuntimeEventKind::RuntimeRecovered => "runtime.recovery",
+    }
+}
+
+fn host_health_summary(
+    configuration: &ConfigurationSnapshot,
+    runtime_snapshot: &RuntimeSnapshot,
+    host: &DomainHost,
+) -> Option<String> {
+    let mut target_health: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+
+    for instance in runtime_snapshot
+        .instances
+        .iter()
+        .filter(|instance| instance.host_id == host.id)
+    {
+        let label = provider_label(configuration, &instance.provider_target_id);
+        let entry = target_health.entry(label).or_insert((0, 0));
+        match instance.status {
+            RuntimeStatus::Connected => entry.0 += 1,
+            RuntimeStatus::Starting | RuntimeStatus::Reconnecting | RuntimeStatus::Error => {
+                entry.1 += 1
+            }
+            RuntimeStatus::Configured => {}
+        }
+    }
+
+    if target_health.is_empty() {
+        return None;
+    }
+
+    Some(
+        target_health
+            .into_iter()
+            .map(|(label, (connected, issues))| {
+                if issues > 0 {
+                    format!("{label} · {connected} 运行 / {issues} 异常")
+                } else {
+                    format!("{label} · {connected} 运行")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" / "),
+    )
 }
 
 fn run_recovery_state_from_runtime_status(status: &RuntimeStatus) -> RunRecoveryRowState {
@@ -2891,6 +3240,7 @@ fn runtime_error_code(error: &crate::runtime::RuntimeErrorInfo) -> String {
         crate::runtime::RuntimeErrorCode::KeepAliveTimeout => "keepalive_timeout",
         crate::runtime::RuntimeErrorCode::ProviderExited => "provider_exited",
         crate::runtime::RuntimeErrorCode::PortConflict => "local_port_conflict",
+        crate::runtime::RuntimeErrorCode::TunnelHealthCheckFailed => "tunnel_health_check_failed",
         crate::runtime::RuntimeErrorCode::InvalidConfiguration => "invalid_configuration",
         crate::runtime::RuntimeErrorCode::Unknown => "unknown",
     }
@@ -3073,6 +3423,80 @@ fn port_summary(rule: &DomainRule) -> String {
             .map(|mapping| mapping.local_port.to_string()),
     );
     ports.join(" + ")
+}
+
+fn entry_url_for_rule(rule: &DomainRule) -> Option<String> {
+    let alias = rule.alias.as_ref()?.hostname.as_str();
+    let mut ports = vec![rule.main_port.local_port];
+    ports.extend(
+        rule.secondary_ports
+            .iter()
+            .map(|mapping| mapping.local_port),
+    );
+    entry_url_from_alias_and_ports(alias, &ports)
+}
+
+fn entry_url_for_runtime(
+    rule: &DomainRule,
+    instance: &crate::runtime::RuntimeInstance,
+) -> Option<String> {
+    let alias = rule.alias.as_ref()?.hostname.as_str();
+    let ports = instance
+        .local_bindings
+        .iter()
+        .map(|binding| binding.local_port)
+        .collect::<Vec<_>>();
+    entry_url_from_alias_and_ports(alias, &ports)
+}
+
+fn entry_url_for_recovery_item(
+    rule: &DomainRule,
+    recovery_item: &crate::runtime::RecoveryItem,
+) -> Option<String> {
+    let alias = rule.alias.as_ref()?.hostname.as_str();
+    let ports = recovery_item
+        .last_local_bindings
+        .iter()
+        .map(|binding| binding.local_port)
+        .collect::<Vec<_>>();
+    entry_url_from_alias_and_ports(alias, &ports)
+}
+
+fn entry_url_from_alias_and_ports(alias: &str, local_ports: &[u16]) -> Option<String> {
+    let alias = alias.trim();
+    if alias.is_empty() {
+        return None;
+    }
+
+    let port = local_ports.iter().copied().find(|port| *port > 0)?;
+    let scheme = if matches!(port, 80 | 443) {
+        default_scheme_for_port(port)
+    } else {
+        "http"
+    };
+    let port_suffix = if (scheme == "http" && port == 80) || (scheme == "https" && port == 443) {
+        String::new()
+    } else {
+        format!(":{port}")
+    };
+
+    Some(format!("{scheme}://{alias}{port_suffix}/"))
+}
+
+fn default_scheme_for_port(port: u16) -> &'static str {
+    if port == 443 {
+        "https"
+    } else {
+        "http"
+    }
+}
+
+fn first_port_from_summary(port_summary: &str) -> u16 {
+    port_summary
+        .split(|character: char| !character.is_ascii_digit())
+        .find(|part| !part.is_empty())
+        .and_then(|part| part.parse::<u16>().ok())
+        .unwrap_or(0)
 }
 
 fn validate_registry_host_draft(draft: &RegistryHostDraft) -> Result<(), Box<BridgeError>> {
@@ -3450,10 +3874,7 @@ fn bridge_error_code_from_provider(code: &ProviderDiagnosticCode) -> BridgeError
 }
 
 fn current_epoch_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(DEMO_REFRESHED_AT_EPOCH_SECONDS)
+    epoch_seconds(SystemTime::now())
 }
 
 fn current_epoch_millis() -> u128 {
@@ -3465,6 +3886,12 @@ fn current_epoch_millis() -> u128 {
 
 fn demo_now_epoch_seconds() -> u64 {
     DEMO_REFRESHED_AT_EPOCH_SECONDS
+}
+
+fn epoch_seconds(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(DEMO_REFRESHED_AT_EPOCH_SECONDS)
 }
 
 #[cfg(test)]
@@ -3575,6 +4002,44 @@ mod tests {
         fn terminate_pid(&self, pid: u32) -> Result<(), ProviderError> {
             self.terminated.borrow_mut().push(pid);
             Ok(())
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct MockTunnelHealthChecker {
+        healthy: bool,
+    }
+
+    impl MockTunnelHealthChecker {
+        fn healthy() -> Self {
+            Self { healthy: true }
+        }
+
+        fn unhealthy() -> Self {
+            Self { healthy: false }
+        }
+    }
+
+    impl crate::runtime::LocalTunnelHealthChecker for MockTunnelHealthChecker {
+        fn check(
+            &self,
+            runtime: &crate::runtime::RuntimeInstance,
+        ) -> crate::runtime::LocalTunnelHealth {
+            let checked_bindings = runtime
+                .local_bindings
+                .iter()
+                .map(|binding| crate::runtime::LocalTunnelBindingHealth {
+                    local_port: binding.local_port,
+                    healthy: self.healthy,
+                    detail: (!self.healthy)
+                        .then(|| format!("mock listener failed for port {}", binding.local_port)),
+                })
+                .collect::<Vec<_>>();
+
+            crate::runtime::LocalTunnelHealth {
+                healthy: self.healthy && !checked_bindings.is_empty(),
+                checked_bindings,
+            }
         }
     }
 
@@ -3819,7 +4284,7 @@ mod tests {
                     .iter()
                     .any(|action| action.action == RunRecoveryActionKind::Stop)
         }));
-        assert_eq!(retried.summary.issue_count, 0);
+        assert_eq!(retried.summary.issue_count, 2);
     }
 
     #[test]
@@ -3889,9 +4354,12 @@ mod tests {
     fn storage_backed_run_recovery_snapshot_returns_empty_state_for_empty_storage() {
         let mut store = RelayDockStore::in_memory().expect("store opens");
 
-        let snapshot =
-            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
-                .expect("run/recovery snapshot loads");
+        let snapshot = load_run_recovery_snapshot_from_store(
+            &mut store,
+            &MockPidController::running(),
+            &MockTunnelHealthChecker::healthy(),
+        )
+        .expect("run/recovery snapshot loads");
 
         assert!(snapshot.hosts.is_empty());
         assert_eq!(snapshot.summary.connected_hosts, 0);
@@ -3908,9 +4376,12 @@ mod tests {
             .save_configuration(&sample_configuration())
             .expect("configuration saves");
 
-        let snapshot =
-            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
-                .expect("run/recovery snapshot loads");
+        let snapshot = load_run_recovery_snapshot_from_store(
+            &mut store,
+            &MockPidController::running(),
+            &MockTunnelHealthChecker::healthy(),
+        )
+        .expect("run/recovery snapshot loads");
 
         assert_eq!(snapshot.hosts.len(), 1);
         assert_eq!(snapshot.hosts[0].id, "host-home");
@@ -3929,6 +4400,10 @@ mod tests {
         assert_eq!(row.alias, "react.home.localhost");
         assert_eq!(row.provider_label, "Tailscale · 家里");
         assert_eq!(row.port_summary, "3000 + 3001");
+        assert_eq!(
+            row.entry_url.as_deref(),
+            Some("http://react.home.localhost:3000/")
+        );
         assert_eq!(row.state, RunRecoveryRowState::Recoverable);
         assert_eq!(row.status_text, "待恢复");
         assert_eq!(
@@ -4013,6 +4488,10 @@ mod tests {
         assert_eq!(row.status_text, "运行中");
         assert_eq!(row.provider_label, "SSH · 家");
         assert_eq!(row.port_summary, "3000 + 3001");
+        assert_eq!(
+            row.entry_url.as_deref(),
+            Some("http://react.home.localhost:3000/")
+        );
         assert!(row
             .actions
             .iter()
@@ -4036,6 +4515,22 @@ mod tests {
         assert!(runtime_snapshot.provider_processes[0]
             .command_summary
             .contains("ssh -N -T"));
+        assert!(runtime_snapshot.events.iter().any(|event| {
+            event.kind == RuntimeEventKind::SshStartRequested
+                && event.rule_id.as_ref().map(|rule_id| rule_id.as_str()) == Some("rule-react")
+                && event
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("3000:127.0.0.1:3000"))
+        }));
+        assert!(runtime_snapshot.events.iter().any(|event| {
+            event.kind == RuntimeEventKind::SshStartSucceeded
+                && event.rule_id.as_ref().map(|rule_id| rule_id.as_str()) == Some("rule-react")
+                && event
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("pid=4242"))
+        }));
     }
 
     #[test]
@@ -4119,9 +4614,12 @@ mod tests {
         )
         .expect("rule starts");
 
-        let snapshot =
-            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
-                .expect("run/recovery snapshot loads");
+        let snapshot = load_run_recovery_snapshot_from_store(
+            &mut store,
+            &MockPidController::running(),
+            &MockTunnelHealthChecker::healthy(),
+        )
+        .expect("run/recovery snapshot loads");
 
         assert_eq!(
             snapshot.hosts[0].rows[0].state,
@@ -4132,6 +4630,72 @@ mod tests {
             Some("runtime-rule-react")
         );
         assert_eq!(snapshot.summary.recoverable_count, 0);
+    }
+
+    #[test]
+    fn load_run_recovery_snapshot_marks_running_pid_unhealthy_tunnel_reconnecting() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        store
+            .save_configuration(&sample_configuration_with_ssh_rule())
+            .expect("configuration saves");
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: Rc::new(RefCell::new(Vec::new())),
+            next_process: MockProcess {
+                pid: Some(4242),
+                exit: None,
+            },
+        });
+        start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect("rule starts");
+
+        let snapshot = load_run_recovery_snapshot_from_store(
+            &mut store,
+            &MockPidController::running(),
+            &MockTunnelHealthChecker::unhealthy(),
+        )
+        .expect("run/recovery snapshot loads");
+
+        let row = &snapshot.hosts[0].rows[0];
+        assert_eq!(row.state, RunRecoveryRowState::Reconnecting);
+        assert_eq!(row.status_text, "重连中");
+        assert_eq!(snapshot.summary.issue_count, 1);
+        assert_eq!(
+            row.error.as_ref().map(|error| error.code.as_str()),
+            Some("tunnel_health_check_failed")
+        );
+        assert!(row
+            .error
+            .as_ref()
+            .and_then(|error| error.detail.as_deref())
+            .is_some_and(|detail| detail.contains("local_port=3000")));
+        assert!(snapshot.hosts[0]
+            .health_summary
+            .as_deref()
+            .is_some_and(|summary| summary.contains("0 运行 / 1 异常")));
+        assert!(snapshot.events.iter().any(|event| {
+            event.kind == "runtime_health_warning"
+                && event.level == RunRecoveryEventLevel::Warning
+                && event.rule_id.as_deref() == Some("rule-react")
+        }));
+
+        let persisted = store
+            .load_runtime_snapshot()
+            .expect("runtime loads")
+            .expect("runtime exists");
+        assert_eq!(persisted.instances[0].status, RuntimeStatus::Reconnecting);
+        assert_eq!(
+            persisted.instances[0]
+                .last_error
+                .as_ref()
+                .map(|error| &error.code),
+            Some(&RuntimeErrorCode::TunnelHealthCheckFailed)
+        );
     }
 
     #[test]
@@ -4156,9 +4720,12 @@ mod tests {
         )
         .expect("rule starts");
 
-        let snapshot =
-            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::missing())
-                .expect("run/recovery snapshot loads");
+        let snapshot = load_run_recovery_snapshot_from_store(
+            &mut store,
+            &MockPidController::missing(),
+            &MockTunnelHealthChecker::healthy(),
+        )
+        .expect("run/recovery snapshot loads");
 
         let row = &snapshot.hosts[0].rows[0];
         assert_eq!(row.state, RunRecoveryRowState::Recoverable);
@@ -4323,6 +4890,7 @@ mod tests {
                     last_observed_at: UNIX_EPOCH,
                 }],
                 local_port_overrides: vec![override_record],
+                events: Vec::new(),
             })
             .expect("runtime saves");
         let launched = Rc::new(RefCell::new(Vec::new()));
@@ -4400,6 +4968,7 @@ mod tests {
                 instances: vec![runtime],
                 provider_processes: Vec::new(),
                 local_port_overrides: Vec::new(),
+                events: Vec::new(),
             })
             .expect("runtime saves");
 
@@ -4496,6 +5065,7 @@ mod tests {
                 instances: vec![connected_runtime],
                 provider_processes: Vec::new(),
                 local_port_overrides: Vec::new(),
+                events: Vec::new(),
             })
             .expect("runtime saves");
 
@@ -4549,6 +5119,7 @@ mod tests {
                 instances: vec![runtime],
                 provider_processes: Vec::new(),
                 local_port_overrides: Vec::new(),
+                events: Vec::new(),
             })
             .expect("runtime saves");
 
@@ -4617,6 +5188,7 @@ mod tests {
                     last_observed_at: UNIX_EPOCH,
                 }],
                 local_port_overrides: Vec::new(),
+                events: Vec::new(),
             })
             .expect("runtime saves");
         let launched = Rc::new(RefCell::new(Vec::new()));
@@ -4682,6 +5254,7 @@ mod tests {
                     last_observed_at: UNIX_EPOCH,
                 }],
                 local_port_overrides: Vec::new(),
+                events: Vec::new(),
             })
             .expect("runtime saves");
 
@@ -4776,12 +5349,16 @@ mod tests {
                 instances: vec![runtime],
                 provider_processes: Vec::new(),
                 local_port_overrides: Vec::new(),
+                events: Vec::new(),
             })
             .expect("runtime saves");
 
-        let snapshot =
-            load_run_recovery_snapshot_from_store(&mut store, &MockPidController::running())
-                .expect("run/recovery snapshot loads");
+        let snapshot = load_run_recovery_snapshot_from_store(
+            &mut store,
+            &MockPidController::running(),
+            &MockTunnelHealthChecker::healthy(),
+        )
+        .expect("run/recovery snapshot loads");
 
         assert_eq!(
             snapshot.hosts[0].rows[0].state,
@@ -5134,6 +5711,7 @@ mod tests {
                 instances: vec![runtime],
                 provider_processes: Vec::new(),
                 local_port_overrides: Vec::new(),
+                events: Vec::new(),
             })
             .expect("runtime saves");
 

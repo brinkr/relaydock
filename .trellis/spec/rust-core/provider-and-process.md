@@ -57,6 +57,8 @@ runtime_from_recovery_item(recovery_item, runtime_instance_id)
 - Provider target labels remain user-oriented strings such as `SSH · 家庭宽带`; Rust should carry the label but not expand it into UI prose.
 - The JSON sidecar cannot retain `Child` handles across invocations. Cross-invocation observation and stop must go through persisted pid metadata plus `ProviderProcessController`.
 - Pid-backed control is a transitional MVP: terminate only the recorded provider pid, do not claim full process-tree supervision until a daemon or launch-agent design exists.
+- A pid that still exists is necessary but not sufficient for `Connected`. Runtime reconciliation must also observe local tunnel health, initially by loopback TCP checks for each `RuntimeInstance.local_bindings` local port. If the pid is alive but any local listener check fails, persist the runtime as `Reconnecting` with `RuntimeErrorCode::TunnelHealthCheckFailed` and emit a structured `RuntimeHealthWarning` event instead of showing a green running state.
+- Local tunnel health is local-listener health only. Do not claim full end-to-end remote application availability from a successful TCP connect to `127.0.0.1:<local_port>`; later HTTP/protocol probes may refine this.
 - A recovered runtime must not be persisted unless the provider observation exposes pid metadata. Without a pid, the next `load_run_recovery_snapshot` reconciliation would immediately classify the runtime as stale and move it back to recovery; fail the recovery action before durable mutation and keep the existing `RecoveryItem` intact.
 
 ### 4. Validation & Error Matrix
@@ -67,6 +69,7 @@ runtime_from_recovery_item(recovery_item, runtime_instance_id)
 - Process observation failure -> `process_status_failed`.
 - Process termination failure -> `process_termination_failed`.
 - Process exit -> `process_exited`, mapped to `RuntimeErrorCode::ProviderExited`.
+- Pid alive + loopback local listener unavailable -> `RuntimeErrorCode::TunnelHealthCheckFailed`, projected as `reconnecting`.
 - Missing persisted pid metadata for a runtime -> bridge-level `runtime_lifecycle_failed`, not a provider error.
 - Recovery launch succeeds but exposes no pid -> bridge-level `runtime_lifecycle_failed`; do not save a runtime instance or clear recovery.
 
@@ -74,6 +77,7 @@ runtime_from_recovery_item(recovery_item, runtime_instance_id)
 
 - Good: a structured rule with one main port and one secondary port builds two `-L` arguments.
 - Base: a running child process marks the runtime instance `Connected` when observed.
+- Base: a recorded pid that still exists but whose loopback listener check fails marks the runtime `Reconnecting`, increments failure count once per newly observed failure, and records a runtime health warning event.
 - Base: a recorded pid that is no longer running moves the runtime to recovery during snapshot load.
 - Base: recovering from a `RecoveryItem` preserves the recovered bindings; applying a manual local-port override changes only runtime/session bindings and leaves saved rule ports unchanged.
 - Bad: storing an imported raw `ssh -L ...` command as the source of truth for starting a rule.
@@ -85,6 +89,7 @@ runtime_from_recovery_item(recovery_item, runtime_instance_id)
 - Rejection of non-SSH provider target.
 - Mock process launcher verifies process start without launching real `ssh`.
 - Running observation marks runtime connected.
+- Pid-alive/local-listener-unhealthy reconciliation marks runtime reconnecting and asserts `tunnel_health_check_failed`.
 - Exited observation emits structured diagnostic and runtime error.
 - Stop terminates process and produces a `RecoveryItem`.
 - Mock pid controller verifies pid observation and pid termination without launching or killing real processes.

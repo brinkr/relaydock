@@ -1,7 +1,7 @@
 use crate::domain::{HostId, ProviderTargetId, RuleId, RuntimeInstanceId};
 use crate::ports::PortUsage;
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +20,90 @@ pub struct RuntimeInstance {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeEvent {
+    pub id: String,
+    pub level: RuntimeEventLevel,
+    pub kind: RuntimeEventKind,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub occurred_at: SystemTime,
+    pub host_id: Option<HostId>,
+    pub rule_id: Option<RuleId>,
+    pub runtime_instance_id: Option<RuntimeInstanceId>,
+    pub provider_target_id: Option<ProviderTargetId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeEventLevel {
+    Info,
+    Notice,
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeEventKind {
+    SshStartRequested,
+    SshStartSucceeded,
+    SshStartFailed,
+    RuntimeHealthOk,
+    RuntimeObserved,
+    RuntimeHealthWarning,
+    RuntimeRecovered,
+}
+
+impl RuntimeEvent {
+    pub fn new(
+        kind: RuntimeEventKind,
+        level: RuntimeEventLevel,
+        summary: impl Into<String>,
+        occurred_at: SystemTime,
+    ) -> Self {
+        Self {
+            id: runtime_event_id(&kind, occurred_at),
+            level,
+            kind,
+            summary: summary.into(),
+            detail: None,
+            occurred_at,
+            host_id: None,
+            rule_id: None,
+            runtime_instance_id: None,
+            provider_target_id: None,
+        }
+    }
+
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    pub fn with_runtime_context(mut self, runtime: &RuntimeInstance) -> Self {
+        self.host_id = Some(runtime.host_id.clone());
+        self.rule_id = Some(runtime.rule_id.clone());
+        self.runtime_instance_id = Some(runtime.id.clone());
+        self.provider_target_id = Some(runtime.provider_target_id.clone());
+        self
+    }
+
+    pub fn with_rule_context(
+        mut self,
+        host_id: HostId,
+        rule_id: RuleId,
+        provider_target_id: ProviderTargetId,
+        runtime_instance_id: RuntimeInstanceId,
+    ) -> Self {
+        self.host_id = Some(host_id);
+        self.rule_id = Some(rule_id);
+        self.runtime_instance_id = Some(runtime_instance_id);
+        self.provider_target_id = Some(provider_target_id);
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderProcessRecord {
     pub runtime_instance_id: RuntimeInstanceId,
     pub provider_kind: ProviderProcessKind,
@@ -28,6 +112,75 @@ pub struct ProviderProcessRecord {
     pub target_label: String,
     pub started_at: Option<SystemTime>,
     pub last_observed_at: SystemTime,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalTunnelHealth {
+    pub healthy: bool,
+    pub checked_bindings: Vec<LocalTunnelBindingHealth>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalTunnelBindingHealth {
+    pub local_port: u16,
+    pub healthy: bool,
+    pub detail: Option<String>,
+}
+
+pub trait LocalTunnelHealthChecker {
+    fn check(&self, runtime: &RuntimeInstance) -> LocalTunnelHealth;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TcpLocalTunnelHealthChecker {
+    pub timeout: Duration,
+}
+
+impl Default for TcpLocalTunnelHealthChecker {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_millis(250),
+        }
+    }
+}
+
+impl LocalTunnelHealthChecker for TcpLocalTunnelHealthChecker {
+    fn check(&self, runtime: &RuntimeInstance) -> LocalTunnelHealth {
+        let checked_bindings = runtime
+            .local_bindings
+            .iter()
+            .map(|binding| {
+                let ipv4 = std::net::SocketAddr::from(([127, 0, 0, 1], binding.local_port));
+                let ipv6 =
+                    std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], binding.local_port));
+                let healthy = std::net::TcpStream::connect_timeout(&ipv4, self.timeout)
+                    .or_else(|_| std::net::TcpStream::connect_timeout(&ipv6, self.timeout))
+                    .map(|stream| {
+                        drop(stream);
+                    })
+                    .is_ok();
+
+                LocalTunnelBindingHealth {
+                    local_port: binding.local_port,
+                    healthy,
+                    detail: (!healthy).then(|| {
+                        format!(
+                            "loopback tcp connect failed for port {}",
+                            binding.local_port
+                        )
+                    }),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let healthy =
+            !checked_bindings.is_empty() && checked_bindings.iter().all(|binding| binding.healthy);
+
+        LocalTunnelHealth {
+            healthy,
+            checked_bindings,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,6 +379,7 @@ pub enum RuntimeErrorCode {
     KeepAliveTimeout,
     ProviderExited,
     PortConflict,
+    TunnelHealthCheckFailed,
     InvalidConfiguration,
     Unknown,
 }
@@ -240,6 +394,14 @@ pub fn uptime_seconds_since(started_at: SystemTime, now: SystemTime) -> Option<u
     now.duration_since(started_at)
         .ok()
         .map(|duration| duration.as_secs())
+}
+
+fn runtime_event_id(kind: &RuntimeEventKind, occurred_at: SystemTime) -> String {
+    let millis = occurred_at
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    format!("{kind:?}-{millis}").to_ascii_lowercase()
 }
 
 #[cfg(test)]

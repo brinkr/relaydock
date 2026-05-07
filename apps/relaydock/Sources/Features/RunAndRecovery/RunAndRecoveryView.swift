@@ -161,6 +161,14 @@ private struct HostRuntimeGroup: View {
         host.rows.count - runningCount
     }
 
+    private var hostSubtitle: String {
+        if let healthSummary = host.healthSummary, !healthSummary.isEmpty {
+            return "\(host.endpoint) · \(healthSummary)"
+        }
+
+        return "\(host.endpoint) · 运行中 \(runningCount) 个 / 待恢复 \(recoverableCount) 个"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -196,7 +204,7 @@ private struct HostRuntimeGroup: View {
                     Text(host.name)
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
-                    Text("\(host.endpoint) · 运行中 \(runningCount) 个 / 待恢复 \(recoverableCount) 个")
+                    Text(hostSubtitle)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -294,7 +302,7 @@ private struct RuntimeServiceRow: View {
                         .foregroundStyle(Color.primary.opacity(0.92))
                         .lineLimit(1)
 
-                    Label(row.alias, systemImage: "arrow.up.forward.square")
+                    Label(row.entryUrl ?? row.alias, systemImage: "arrow.up.forward.square")
                         .font(.system(size: 10, design: .monospaced))
                         .labelStyle(.titleAndIcon)
                         .foregroundStyle(RelayDockColor.sidebarAccent.opacity(0.82))

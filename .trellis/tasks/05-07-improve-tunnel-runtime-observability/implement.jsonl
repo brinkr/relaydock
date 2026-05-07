@@ -1,0 +1,14 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project stack and product boundary constraints"}
+{"file": ".trellis/spec/project/commit-guidelines.md", "reason": "Document-style commit requirements"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Rust core owns runtime state, provider orchestration, storage, and diagnostics"}
+{"file": ".trellis/spec/rust-core/provider-and-process.md", "reason": "OpenSSH provider process lifecycle, pid-backed observation, retry/recovery contracts"}
+{"file": ".trellis/spec/rust-core/storage-and-diagnostics.md", "reason": "SQLite runtime snapshot and diagnostic persistence constraints"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge command/snapshot boundary expectations"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Existing start_rule and load_run_recovery_snapshot contracts"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell owns UI presentation only"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Swift must not own runtime or diagnosis state machines"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Run/recovery and logs/diagnostics display expectations"}
+{"file": "documents/03-domain-model.md", "reason": "RuntimeInstance latency, LocalAlias, and LocalPortBinding model guidance"}
+{"file": "documents/04-runtime-state-machine.md", "reason": "Connected/reconnecting/error/recoverable semantics and keepalive expectations"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Logs and diagnostics page role"}
+{"file": "documents/07-port-management-foundation.md", "reason": "Port diagnostics and local port expression guidance"}

@@ -23,7 +23,35 @@ struct RelayDockVisualQAFixtures {
                 recoverableCount: 4,
                 message: "存在可恢复的转发"
             ),
-            lastAction: nil
+            lastAction: nil,
+            events: [
+                RunRecoveryEvent(
+                    id: "fixture-runtime-health-warning",
+                    level: .warning,
+                    kind: "runtime_health_warning",
+                    occurredAtEpochSeconds: 1_777_777_760,
+                    component: "runtime.health",
+                    summary: "OpenSSH 进程仍在，但本地隧道监听不可达",
+                    detail: "local_port=8081 healthy=false detail=fixture listener failed",
+                    hostId: "host-home-mac-mini",
+                    ruleId: "go-microservice",
+                    runtimeId: "runtime-go-microservice",
+                    providerTargetId: "target-home-ssh"
+                ),
+                RunRecoveryEvent(
+                    id: "fixture-ssh-start-succeeded",
+                    level: .notice,
+                    kind: "ssh_start_succeeded",
+                    occurredAtEpochSeconds: 1_777_777_700,
+                    component: "provider.openssh",
+                    summary: "OpenSSH 隧道已启动",
+                    detail: "ssh -N -T -L 3000:127.0.0.1:3000 admin@192.168.1.5 | pid=4242",
+                    hostId: "host-home-mac-mini",
+                    ruleId: "react-frontend",
+                    runtimeId: "runtime-react-frontend",
+                    providerTargetId: "target-home-tailscale"
+                ),
+            ]
         )
 
         let registrySnapshot = RegistrySnapshotResult(
@@ -45,6 +73,7 @@ struct RelayDockVisualQAFixtures {
                 name: "Mac mini (M2) - 家",
                 endpoint: "admin@192.168.1.5",
                 providerSummary: "SSH · 家庭宽带 / Tailscale · 家里",
+                healthSummary: "SSH · 家庭宽带 · 1 运行 / 2 异常 / Tailscale · 家里 · 3 运行",
                 rows: [
                     connectedRow("react-frontend", "React 前端", "react.home.localhost", "3000 -> 127.0.0.1:3000", "Tailscale · 家里", "6h 12m · 2ms · 0次"),
                     connectedRow("fastapi-backend", "FastAPI Backend", "api.home.localhost", "8000 -> api.internal:8000", "Tailscale · 家里", "6h 12m · 3ms · 0次"),
@@ -62,6 +91,7 @@ struct RelayDockVisualQAFixtures {
                 name: "Ubuntu Dev Server",
                 endpoint: "root@10.0.0.12",
                 providerSummary: "SSH · 内网直连",
+                healthSummary: "SSH · 内网 · 1 运行 / 1 异常",
                 rows: [
                     connectedRow("redis-cluster", "Redis Cluster", "redis.dev.localhost", "6379 -> 127.0.0.1:6379", "SSH · 内网", "34h 10m · 45ms · 0次", hostId: "host-ubuntu-dev"),
                     reconnectingRow("docker-registry", "Docker Registry", "docker.dev.localhost", "5000 + 5001 -> registry.internal:5000", "SSH · 内网", "连续 3 次未收到响应", "0m · - · 12次", hostId: "host-ubuntu-dev"),
@@ -162,6 +192,7 @@ struct RelayDockVisualQAFixtures {
             hostId: hostId,
             serviceName: serviceName,
             alias: alias,
+            entryUrl: entryURL(alias: alias, portSummary: portSummary),
             providerLabel: providerLabel,
             portSummary: portSummary,
             state: .connected,
@@ -190,6 +221,7 @@ struct RelayDockVisualQAFixtures {
             hostId: hostId,
             serviceName: serviceName,
             alias: alias,
+            entryUrl: entryURL(alias: alias, portSummary: portSummary),
             providerLabel: providerLabel,
             portSummary: portSummary,
             state: .reconnecting,
@@ -220,6 +252,7 @@ struct RelayDockVisualQAFixtures {
             hostId: "host-home-mac-mini",
             serviceName: serviceName,
             alias: alias,
+            entryUrl: entryURL(alias: alias, portSummary: portSummary),
             providerLabel: providerLabel,
             portSummary: portSummary,
             state: .error,
@@ -249,6 +282,7 @@ struct RelayDockVisualQAFixtures {
             hostId: "host-home-mac-mini",
             serviceName: serviceName,
             alias: alias,
+            entryUrl: entryURL(alias: alias, portSummary: portSummary),
             providerLabel: providerLabel,
             portSummary: portSummary,
             state: .recoverable,
@@ -261,6 +295,14 @@ struct RelayDockVisualQAFixtures {
                 RunRecoveryAction(action: .clear, label: "清除"),
             ]
         )
+    }
+
+    private static func entryURL(alias: String, portSummary: String) -> String? {
+        guard let port = portSummary.split(whereSeparator: { !$0.isNumber }).first else {
+            return nil
+        }
+
+        return "http://\(alias):\(port)/"
     }
 
     private static func registryHost(

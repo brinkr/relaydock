@@ -98,3 +98,80 @@ store.save_runtime_snapshot(&RuntimeSnapshot {
     local_port_overrides: vec![override_record],
 })?;
 ```
+
+## Runtime Events And Health Diagnostics
+
+### 1. Scope / Trigger
+
+- Trigger: runtime snapshots need explainable operational history, not just current rows.
+- Owner: Rust core owns event creation, persistence, retention, and projection into bridge snapshots.
+
+### 2. Signatures
+
+Rust data:
+
+```rust
+RuntimeSnapshot {
+    instances: Vec<RuntimeInstance>,
+    provider_processes: Vec<ProviderProcessRecord>,
+    local_port_overrides: Vec<LocalPortOverride>,
+    events: Vec<RuntimeEvent>,
+}
+```
+
+Bridge projection:
+
+```json
+{
+  "type": "run_recovery_snapshot",
+  "events": [
+    {
+      "level": "warning",
+      "kind": "runtime_health_warning",
+      "component": "runtime.health",
+      "summary": "...",
+      "detail": "local_port=18317 healthy=false ..."
+    }
+  ]
+}
+```
+
+### 3. Contracts
+
+- `start_rule` records `ssh_start_requested` and either `ssh_start_succeeded` or `ssh_start_failed`.
+- Runtime reconciliation records `runtime_health_warning` when pid metadata is alive but local listener health fails.
+- Events must carry stable context when known: `host_id`, `rule_id`, `runtime_instance_id`, and `provider_target_id`.
+- Persisted event history is capped; newest events are projected first.
+- Swift must display these events as diagnostics and must not synthesize provider/process events that Rust did not return.
+
+### 4. Validation & Error Matrix
+
+- Missing `events` in old runtime snapshots -> deserialize as empty with `serde(default)`.
+- Event detail may include command summaries and local bindings, but must not include secrets or raw credentials.
+- Runtime health warning is not a storage error; it is a normal diagnostic event plus `Reconnecting` runtime state.
+
+### 5. Good/Base/Bad Cases
+
+- Good: starting an SSH rule leaves a queryable event containing the OpenSSH command summary, pid when available, and local binding summary.
+- Base: old SQLite snapshots without `events` still load.
+- Bad: Swift invents a fake network-switch provider event because a row is reconnecting.
+
+### 6. Tests Required
+
+- Rust unit test that starting a rule persists structured runtime events.
+- Rust unit test that pid-alive/local-listener-unhealthy reconciliation persists `runtime_health_warning`.
+- Swift build must compile bridge models that include `events`.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```swift
+DiagnosticEntry(summary: "OpenSSH 已断开", detail: nil) // invented in Swift
+```
+
+Correct:
+
+```swift
+runRecoverySnapshot.events.map(DiagnosticEntry.init)
+```

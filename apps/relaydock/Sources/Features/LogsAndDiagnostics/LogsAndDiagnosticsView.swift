@@ -444,6 +444,22 @@ private struct DiagnosticEntry: Identifiable {
             )
         }
 
+        if let runtimeEvents = runRecoverySnapshot?.events {
+            items.append(
+                contentsOf: runtimeEvents.map { event in
+                    DiagnosticEntry(
+                        id: "runtime-event-\(event.id)",
+                        scope: event.level.diagnosticScope,
+                        level: event.level.diagnosticLevel,
+                        timestamp: DiagnosticEntry.formatTimestamp(event.occurredAtEpochSeconds),
+                        component: event.component,
+                        summary: event.summary,
+                        detail: event.detail ?? DiagnosticEntry.eventContext(for: event)
+                    )
+                }
+            )
+        }
+
         items.append(
             DiagnosticEntry(
                 id: "bridge-sidecar",
@@ -542,6 +558,33 @@ private struct DiagnosticEntry: Identifiable {
 
         return items
     }
+
+    private static func formatTimestamp(_ epochSeconds: UInt64) -> String {
+        guard epochSeconds > 0 else {
+            return "--:--:--"
+        }
+
+        return DateFormatter.relayDockConsole.string(from: Date(timeIntervalSince1970: TimeInterval(epochSeconds)))
+    }
+
+    private static func eventContext(for event: RunRecoveryEvent) -> String? {
+        [
+            event.hostId.map { "host=\($0)" },
+            event.ruleId.map { "rule=\($0)" },
+            event.runtimeId.map { "runtime=\($0)" },
+            event.providerTargetId.map { "target=\($0)" },
+            event.kind.isEmpty ? nil : "kind=\(event.kind)",
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .diagnosticNilIfEmpty
+    }
+}
+
+private extension String {
+    var diagnosticNilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }
 
 private enum DiagnosticLevel {
@@ -573,6 +616,30 @@ private enum DiagnosticLevel {
             return .orange
         case .error:
             return .red
+        }
+    }
+}
+
+private extension RunRecoveryEventLevel {
+    var diagnosticLevel: DiagnosticLevel {
+        switch self {
+        case .info:
+            return .info
+        case .notice:
+            return .notice
+        case .warning:
+            return .warning
+        case .error:
+            return .error
+        }
+    }
+
+    var diagnosticScope: DiagnosticScope {
+        switch self {
+        case .warning, .error:
+            return .issues
+        case .info, .notice:
+            return .recent
         }
     }
 }

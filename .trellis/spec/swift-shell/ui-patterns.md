@@ -50,6 +50,10 @@ Keep service rows column-stable. Ports, status, telemetry, provider labels, and 
 
 Until the bridge exposes favicon or repo-icon fields for runtime rows, use the LocalPort fallback glyph style for run/recovery services: a subtle 20pt rounded square with an uppercase first letter. Do not invent per-service SF Symbol mappings in Swift based only on service names; those create a different icon language from the prototype and duplicate future domain/icon inference work.
 
+Show provider/host-scoped health or latency summaries in the host header when Rust returns `healthSummary`; do not repeat the same SSH-target latency on every row. Row telemetry should stay focused on runtime duration, failure count, and binding-specific differences.
+
+When Rust returns `entryUrl`, show that complete URL instead of a bare alias. A `.localhost` hostname does not carry port information; `http://ssh-18317.localhost:18317/` and `http://ssh-18317.localhost/` are different local entries.
+
 Actions must be explicit:
 
 - page-level `停止全部运行` and `清空恢复列表` are separate
@@ -80,6 +84,7 @@ Use:
 - center console/event workspace for structured lines
 - right inspector for checks, recovery candidates, and bridge facts
 - current `run/recovery` and `registry` snapshots as the first data source
+- `runRecoverySnapshot.events` as the first source for actual runtime/provider event lines
 
 Avoid:
 

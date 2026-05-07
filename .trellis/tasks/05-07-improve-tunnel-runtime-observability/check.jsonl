@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Verify stack and scope did not drift"}
+{"file": ".trellis/spec/project/commit-guidelines.md", "reason": "Verify final commit documents reason, purpose, scope, boundary, and verification"}
+{"file": ".trellis/spec/rust-core/index.md", "reason": "Verify Rust-owned runtime and diagnostics behavior"}
+{"file": ".trellis/spec/rust-core/provider-and-process.md", "reason": "Verify process observation and recovery contracts remain coherent"}
+{"file": ".trellis/spec/rust-core/storage-and-diagnostics.md", "reason": "Verify storage/diagnostic persistence and validation"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Verify bridge snapshots remain structured and coarse-grained"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Verify start/load runtime behavior is documented and testable"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Verify Swift shell presentation stays native and Chinese-first"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Verify Swift does not invent provider health state"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Verify run/recovery and logs UI remain consistent"}

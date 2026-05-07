@@ -1,5 +1,7 @@
 use crate::domain::{Host, Preset, Rule};
-use crate::runtime::{LocalPortOverride, ProviderProcessRecord, RecoveryItem, RuntimeInstance};
+use crate::runtime::{
+    LocalPortOverride, ProviderProcessRecord, RecoveryItem, RuntimeEvent, RuntimeInstance,
+};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -24,6 +26,8 @@ pub struct RuntimeSnapshot {
     #[serde(default)]
     pub provider_processes: Vec<ProviderProcessRecord>,
     pub local_port_overrides: Vec<LocalPortOverride>,
+    #[serde(default)]
+    pub events: Vec<RuntimeEvent>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -691,6 +695,7 @@ mod tests {
                 instances: vec![runtime],
                 provider_processes: Vec::new(),
                 local_port_overrides: vec![override_record],
+                events: Vec::new(),
             },
             configuration(),
         )

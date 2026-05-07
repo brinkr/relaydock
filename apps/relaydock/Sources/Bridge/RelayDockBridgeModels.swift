@@ -254,6 +254,38 @@ struct RunRecoverySnapshotResult: Codable, Equatable {
     var hosts: [RunRecoveryHost]
     var summary: RunRecoverySummary
     var lastAction: RunRecoveryActionStatus?
+    var events: [RunRecoveryEvent]
+
+    init(
+        refreshedAtEpochSeconds: UInt64,
+        hosts: [RunRecoveryHost],
+        summary: RunRecoverySummary,
+        lastAction: RunRecoveryActionStatus?,
+        events: [RunRecoveryEvent] = []
+    ) {
+        self.refreshedAtEpochSeconds = refreshedAtEpochSeconds
+        self.hosts = hosts
+        self.summary = summary
+        self.lastAction = lastAction
+        self.events = events
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case refreshedAtEpochSeconds
+        case hosts
+        case summary
+        case lastAction
+        case events
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        refreshedAtEpochSeconds = try container.decode(UInt64.self, forKey: .refreshedAtEpochSeconds)
+        hosts = try container.decode([RunRecoveryHost].self, forKey: .hosts)
+        summary = try container.decode(RunRecoverySummary.self, forKey: .summary)
+        lastAction = try container.decodeIfPresent(RunRecoveryActionStatus.self, forKey: .lastAction)
+        events = try container.decodeIfPresent([RunRecoveryEvent].self, forKey: .events) ?? []
+    }
 }
 
 struct RunRecoveryHost: Codable, Equatable, Identifiable {
@@ -261,7 +293,64 @@ struct RunRecoveryHost: Codable, Equatable, Identifiable {
     var name: String
     var endpoint: String
     var providerSummary: String
+    var healthSummary: String?
     var rows: [RunRecoveryRow]
+
+    init(
+        id: String,
+        name: String,
+        endpoint: String,
+        providerSummary: String,
+        healthSummary: String? = nil,
+        rows: [RunRecoveryRow]
+    ) {
+        self.id = id
+        self.name = name
+        self.endpoint = endpoint
+        self.providerSummary = providerSummary
+        self.healthSummary = healthSummary
+        self.rows = rows
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case endpoint
+        case providerSummary
+        case healthSummary
+        case rows
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        endpoint = try container.decode(String.self, forKey: .endpoint)
+        providerSummary = try container.decode(String.self, forKey: .providerSummary)
+        healthSummary = try container.decodeIfPresent(String.self, forKey: .healthSummary)
+        rows = try container.decode([RunRecoveryRow].self, forKey: .rows)
+    }
+}
+
+struct RunRecoveryEvent: Codable, Equatable, Identifiable {
+    var id: String
+    var level: RunRecoveryEventLevel
+    var kind: String
+    var occurredAtEpochSeconds: UInt64
+    var component: String
+    var summary: String
+    var detail: String?
+    var hostId: String?
+    var ruleId: String?
+    var runtimeId: String?
+    var providerTargetId: String?
+}
+
+enum RunRecoveryEventLevel: String, Codable {
+    case info
+    case notice
+    case warning
+    case error
 }
 
 struct RunRecoveryRow: Codable, Equatable, Identifiable {
@@ -272,6 +361,7 @@ struct RunRecoveryRow: Codable, Equatable, Identifiable {
     var hostId: String
     var serviceName: String
     var alias: String
+    var entryUrl: String?
     var providerLabel: String
     var portSummary: String
     var state: RunRecoveryRowState
