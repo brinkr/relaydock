@@ -68,29 +68,62 @@ Do not use unclear labels such as `编辑更改`.
 
 It can show runtime summaries, but must not become a second runtime console.
 
-Use a left host list and right detail pane. Prefer modal/sheet flows for SSH command import and focused edits.
+Use a lighter left host list and right detail pane. The host list should feel like a source-list resource picker: roomy rows, low-contrast background, shallow selected accent, and minimal per-row metadata. Keep detailed endpoint/provider facts in the selected-host header rather than making the left list read like a data table.
 
-Keep rule rows compact and single-line. Service names, status labels, and action clusters should truncate or align inside stable columns instead of wrapping into taller rows.
+The selected-host detail should use a host header plus a faint gray work surface. Let spacing, background, and calm containers carry the hierarchy instead of hard stacked bands.
 
-When registry rules include mixed runtime states, group them by state only as a scanning aid; the grouping must not create new runtime behavior or hide rules. Keep row actions in fixed slots: configuration actions first (`映射`, `规则`), followed by exactly one state action (`停止`, `启动`, `恢复`, or `重试`) when applicable. Use fixed widths for service, alias, port, provider, status, and action columns so long aliases or provider labels truncate rather than shifting the action cluster.
+`启动预设` should stay a lightweight flow, not a boxed table. Empty states should be one quiet line. Avoid combining outer overlay dividers with row dividers; that creates the double-line effect that made the section feel broken.
 
-## Logs And Diagnostics
+`规则清单` should prefer a compact toolbar plus calm rounded containers with shallow internal separators. Runtime-state grouping is a scanning aid only; it must not create new runtime behavior or hide rules. Prefer white rounded rule-group cards on the gray work surface over stacked hard bands.
 
-`日志与诊断` is a diagnostic workspace, not a themed placeholder.
+Registry rule rows may use a compact two-line service-item layout when it better matches the prototype: first line for service identity, alias, and status; second line for local port and provider/link context. Keep row actions in stable fixed slots on the right: configuration actions first (`映射`, `规则`), followed by exactly one state action (`停止`, `启动`, `恢复`, or `重试`) when applicable. Long service names, aliases, ports, and provider labels should truncate inside their row areas rather than shifting the action cluster.
 
-Use:
+Prefer:
 
-- left scope/source list for diagnostic ranges
-- center console/event workspace for structured lines
-- right inspector for checks, recovery candidates, and bridge facts
-- current `run/recovery` and `registry` snapshots as the first data source
-- `runRecoverySnapshot.events` as the first source for actual runtime/provider event lines
+- shallow borders on the host-list split, host header bottom, and rule-card container
+- subtle card-internal separators only between rows
+- spacing between sections instead of repeated `Divider()` / overlay lines
 
 Avoid:
 
+- table-wide single-line rule rows when they make the page feel like a spreadsheet
+- repeated overlay top/bottom dividers around sections that already have row separators
+- boxed preset bands or empty preset containers
+
+## Logs
+
+`日志` is a focused log workspace, not a mixed diagnostics dashboard.
+
+Use:
+
+- top tabs or segmented filters for log ranges
+- full-width console/event workspace for structured lines
+- current `run/recovery` and `registry` snapshots as the first data source
+- `runRecoverySnapshot.events` as the first source for actual runtime/provider event lines
+- snapshot-derived runtime host / reconnecting / error / recovery rows may appear when they read as event history
+
+Avoid:
+
+- a second left scope/sidebar inside the log console
+- checklist-style diagnosis facts such as snapshot summary checks
 - black card inside a white page
+- inventing provider streaming logs when the bridge does not expose them
+
+## Diagnostics
+
+`诊断` is a separate facts-and-checks surface.
+
+Use:
+
+- active checks derived from current snapshots and bridge errors
+- inspector-style bridge / snapshot facts
+- recovery candidates and runtime issue rows
+- current `run/recovery` and `registry` snapshots as the first data source
+
+Avoid:
+
 - inventing a second Swift-owned runtime or provider state machine
-- pretending provider streaming logs already exist when the bridge does not expose them
+- moving log console scope navigation back into a second internal sidebar
 
 ## Preferences
 

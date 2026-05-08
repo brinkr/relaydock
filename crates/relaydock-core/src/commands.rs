@@ -21,17 +21,25 @@ use crate::storage::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 #[cfg(not(test))]
 use std::{env, fs, path::PathBuf};
 
 const DEMO_REFRESHED_AT_EPOCH_SECONDS: u64 = 1_777_777_777;
+const DEFAULT_CONNECTIVITY_TIMEOUT_MILLIS: u64 = 3_000;
+
+fn default_connectivity_timeout_millis() -> u64 {
+    DEFAULT_CONNECTIVITY_TIMEOUT_MILLIS
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum BridgeCommand {
     CheckPortClaim(CheckPortClaimCommand),
     ParseSshCommand(ParseSshCommandCommand),
+    TestProviderTargetConnectivity(TestProviderTargetConnectivityCommand),
     LoadRunRecoverySnapshot,
     LoadRegistrySnapshot,
     SaveRegistryHost(SaveRegistryHostCommand),
@@ -57,9 +65,18 @@ pub struct CheckPortClaimCommand {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TestProviderTargetConnectivityCommand {
+    pub target_address: String,
+    pub target_port: u16,
+    #[serde(default = "default_connectivity_timeout_millis")]
+    pub timeout_millis: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum BridgeCommandResult {
     PortClaimCheck(PortClaimCheckResult),
+    ProviderTargetConnectivity(ProviderTargetConnectivityResult),
     SshCommandParse(ParseSshCommandResult),
     RunRecoverySnapshot(RunRecoverySnapshotResult),
     RegistrySnapshot(RegistrySnapshotResult),
@@ -71,6 +88,31 @@ pub struct PortClaimCheckResult {
     pub available: bool,
     pub conflict: Option<PortConflict>,
     pub suggested_port: Option<u16>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderTargetConnectivityResult {
+    pub target_address: String,
+    pub target_port: u16,
+    pub reachable: bool,
+    pub latency_millis: Option<u64>,
+    pub checked_at_epoch_seconds: u64,
+    pub diagnostic: Option<ProviderTargetConnectivityDiagnostic>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderTargetConnectivityDiagnostic {
+    pub code: ProviderTargetConnectivityDiagnosticCode,
+    pub summary: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderTargetConnectivityDiagnosticCode {
+    InvalidTarget,
+    DnsResolutionFailed,
+    ConnectFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -646,6 +688,11 @@ pub fn execute_bridge_command(
         BridgeCommand::ParseSshCommand(command) => Ok(BridgeCommandResult::SshCommandParse(
             parse_ssh_command(&command.command_text),
         )),
+        BridgeCommand::TestProviderTargetConnectivity(command) => {
+            Ok(BridgeCommandResult::ProviderTargetConnectivity(
+                test_provider_target_connectivity(command),
+            ))
+        }
         BridgeCommand::LoadRunRecoverySnapshot => {
             #[cfg(test)]
             {
@@ -724,6 +771,101 @@ pub fn check_port_claim(claim: PortClaim, known_usages: Vec<PortUsage>) -> PortC
         available,
         conflict,
         suggested_port,
+    }
+}
+
+pub fn test_provider_target_connectivity(
+    command: TestProviderTargetConnectivityCommand,
+) -> ProviderTargetConnectivityResult {
+    let target_address = command.target_address.trim().to_string();
+    let target_port = command.target_port;
+    let checked_at_epoch_seconds = current_epoch_seconds();
+    let timeout = Duration::from_millis(command.timeout_millis.clamp(250, 10_000));
+
+    if target_address.is_empty() || target_port == 0 {
+        return ProviderTargetConnectivityResult {
+            target_address,
+            target_port,
+            reachable: false,
+            latency_millis: None,
+            checked_at_epoch_seconds,
+            diagnostic: Some(ProviderTargetConnectivityDiagnostic {
+                code: ProviderTargetConnectivityDiagnosticCode::InvalidTarget,
+                summary: "测试目标不完整".to_string(),
+                detail: Some("target_address must not be empty and target_port must be 1-65535.".to_string()),
+            }),
+        };
+    }
+
+    let mut resolved_addrs = match (target_address.as_str(), target_port).to_socket_addrs() {
+        Ok(addrs) => addrs.collect::<Vec<SocketAddr>>(),
+        Err(error) => {
+            return ProviderTargetConnectivityResult {
+                target_address,
+                target_port,
+                reachable: false,
+                latency_millis: None,
+                checked_at_epoch_seconds,
+                diagnostic: Some(ProviderTargetConnectivityDiagnostic {
+                    code: ProviderTargetConnectivityDiagnosticCode::DnsResolutionFailed,
+                    summary: "无法解析测试目标".to_string(),
+                    detail: Some(error.to_string()),
+                }),
+            };
+        }
+    };
+
+    if resolved_addrs.is_empty() {
+        return ProviderTargetConnectivityResult {
+            target_address,
+            target_port,
+            reachable: false,
+            latency_millis: None,
+            checked_at_epoch_seconds,
+            diagnostic: Some(ProviderTargetConnectivityDiagnostic {
+                code: ProviderTargetConnectivityDiagnosticCode::DnsResolutionFailed,
+                summary: "无法解析测试目标".to_string(),
+                detail: Some("Resolver returned no socket addresses.".to_string()),
+            }),
+        };
+    }
+
+    resolved_addrs.sort_by_key(|addr| if addr.is_ipv4() { 0 } else { 1 });
+    let mut last_error = None;
+
+    for addr in resolved_addrs {
+        let started_at = Instant::now();
+        match TcpStream::connect_timeout(&addr, timeout) {
+            Ok(stream) => {
+                let _ = stream.set_nodelay(true);
+                return ProviderTargetConnectivityResult {
+                    target_address,
+                    target_port,
+                    reachable: true,
+                    latency_millis: Some(
+                        started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+                    ),
+                    checked_at_epoch_seconds,
+                    diagnostic: None,
+                };
+            }
+            Err(error) => {
+                last_error = Some(format!("{addr}: {error}"));
+            }
+        }
+    }
+
+    ProviderTargetConnectivityResult {
+        target_address,
+        target_port,
+        reachable: false,
+        latency_millis: None,
+        checked_at_epoch_seconds,
+        diagnostic: Some(ProviderTargetConnectivityDiagnostic {
+            code: ProviderTargetConnectivityDiagnosticCode::ConnectFailed,
+            summary: "无法连接测试目标".to_string(),
+            detail: last_error,
+        }),
     }
 }
 
@@ -4214,6 +4356,56 @@ mod tests {
         assert_eq!(json["result"]["type"], "ssh_command_parse");
         assert_eq!(json["result"]["rule_drafts"][0]["local_port"], 3000);
         assert_eq!(json["result"]["destination_hint"]["host"], "sanjose");
+    }
+
+    #[test]
+    fn test_provider_target_connectivity_rejects_empty_target() {
+        let result = test_provider_target_connectivity(TestProviderTargetConnectivityCommand {
+            target_address: "  ".to_string(),
+            target_port: 22,
+            timeout_millis: 250,
+        });
+
+        assert!(!result.reachable);
+        assert_eq!(
+            result.diagnostic.as_ref().map(|diagnostic| &diagnostic.code),
+            Some(&ProviderTargetConnectivityDiagnosticCode::InvalidTarget)
+        );
+    }
+
+    #[test]
+    fn test_provider_target_connectivity_reports_dns_resolution_failure() {
+        let result = test_provider_target_connectivity(TestProviderTargetConnectivityCommand {
+            target_address: "invalid.invalid.".to_string(),
+            target_port: 22,
+            timeout_millis: 250,
+        });
+
+        assert!(!result.reachable);
+        assert_eq!(
+            result.diagnostic.as_ref().map(|diagnostic| &diagnostic.code),
+            Some(&ProviderTargetConnectivityDiagnosticCode::DnsResolutionFailed)
+        );
+    }
+
+    #[test]
+    fn test_provider_target_connectivity_bridge_command_returns_structured_result() {
+        let command: BridgeCommand = serde_json::from_value(json!({
+            "command": "test_provider_target_connectivity",
+            "target_address": "",
+            "target_port": 22,
+            "timeout_millis": 250
+        }))
+        .expect("command JSON decodes");
+
+        let response =
+            BridgeResponse::success(execute_bridge_command(command).expect("command executes"));
+        let json = serde_json::to_value(response).expect("response serializes");
+
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["result"]["type"], "provider_target_connectivity");
+        assert_eq!(json["result"]["reachable"], false);
+        assert_eq!(json["result"]["diagnostic"]["code"], "invalid_target");
     }
 
     #[test]

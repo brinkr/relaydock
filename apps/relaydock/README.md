@@ -12,7 +12,7 @@ Current scope:
 - source-list sidebar
 - contextual toolbar row
 - bottom status bar
-- placeholder pages for the four confirmed product areas
+- primary pages for run/recovery, registry, logs, diagnostics, and preferences
 
 Out of scope:
 

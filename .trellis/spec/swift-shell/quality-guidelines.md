@@ -18,7 +18,7 @@
 - Visual QA must fail on black screenshots or missing window rectangles. A black fallback screenshot is not evidence that the UI was inspected.
 - Visual QA must not treat full-screen fallback screenshots as success when the RelayDock window rectangle cannot be located. Fail with the temporary app bundle, bundle id, pid, known window rect, and a keep-open rerun hint instead.
 - On multi-display machines, keep the initial RelayDock window on the primary visible screen so screenshot automation does not capture an offscreen or unavailable display region.
-- Visual QA must capture all four primary shell pages in one app launch: `运行与恢复`, `资源登记`, `日志与诊断`, and `偏好设置`. If a page cannot be selected through Accessibility, fail with context instead of silently skipping it.
+- Visual QA must capture all primary shell pages in one app launch: `运行与恢复`, `资源登记`, `日志`, `诊断`, and `偏好设置`. If a page cannot be selected through Accessibility, fail with context instead of silently skipping it.
 - UI style recovery checks must use a dense visual-QA fixture or seeded QA store, not the user's normal runtime data, so a sparse real store cannot make an empty-looking UI pass as visually aligned.
 - Dense visual-QA fixtures are intentional test assets, not disposable mock leftovers. Preserve them while UI style is still changing, and keep their activation explicit through `RELAYDOCK_VISUAL_QA_FIXTURE` or an equivalent QA-only switch.
 - The dense visual-QA run/recovery screenshot must be inspected for prototype-style density: at least one expanded host group, multiple visible service rows, stable right-side status/telemetry/action columns, compact sidebar, content-pane top bar, and bottom status bar.

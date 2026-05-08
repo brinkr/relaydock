@@ -13,7 +13,8 @@ struct SidebarView: View {
 
                 SidebarButton(section: .runAndRecovery, selection: $selection)
                 SidebarButton(section: .registry, selection: $selection)
-                SidebarButton(section: .logsAndDiagnostics, selection: $selection)
+                SidebarButton(section: .logs, selection: $selection)
+                SidebarButton(section: .diagnostics, selection: $selection)
 
                 SidebarGroupTitle("系统")
                     .padding(.top, 18)

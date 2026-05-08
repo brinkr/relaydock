@@ -227,7 +227,7 @@ struct PreferencesView: View {
             PreferenceInfoRow(
                 title: "异常实例",
                 value: "\(issueCount) 条",
-                detail: issueCount == 0 ? "当前没有异常中的 runtime" : "可在日志与诊断页查看具体 provider / 端口异常",
+                detail: issueCount == 0 ? "当前没有异常中的 runtime" : "可在诊断页查看具体 provider / 端口异常",
                 accent: issueCount == 0 ? .secondary : .orange
             )
             Divider()

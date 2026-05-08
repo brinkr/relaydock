@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Verify architecture and scope boundaries"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Verify snapshot/event boundary remains structured"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Verify Swift consumes current snapshots without new bridge behavior"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Verify native presentation ownership"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Verify no Swift runtime/diagnostic state machine"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Verify logs and diagnosis UI patterns"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Verify density and quality checks"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Verify top-level IA split"}
+{"file": "documents/11-localport-prototype-reference.md", "reason": "Verify prototype-aligned density"}

@@ -80,6 +80,34 @@ final class RelayDockBridgeExecutor {
         return parseResult
     }
 
+    func testProviderTargetConnectivity(
+        targetAddress: String,
+        targetPort: UInt16,
+        timeoutMillis: UInt64 = 3_000
+    ) throws -> ProviderTargetConnectivityResult {
+        let command = TestProviderTargetConnectivityCommand(
+            targetAddress: targetAddress,
+            targetPort: targetPort,
+            timeoutMillis: timeoutMillis
+        )
+        let result = try execute(.testProviderTargetConnectivity(command))
+
+        guard case let .providerTargetConnectivity(connectivityResult) = result else {
+            throw BridgeErrorInfo(
+                code: .responseDecodeFailed,
+                summary: "Bridge returned an unexpected result type",
+                detail: "Expected provider_target_connectivity for provider target connectivity test.",
+                affectedPort: targetPort,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: nil
+            )
+        }
+
+        return connectivityResult
+    }
+
     func loadRunRecoverySnapshot() throws -> RunRecoverySnapshotResult {
         let result = try execute(.loadRunRecoverySnapshot)
         return try unwrapRunRecoverySnapshot(result, actionDescription: "load run/recovery snapshot")

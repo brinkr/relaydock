@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct LogsAndDiagnosticsView: View {
+struct LogsView: View {
     let runRecoverySnapshot: RunRecoverySnapshotResult?
     let registrySnapshot: RegistrySnapshotResult?
     let runRecoveryError: BridgeErrorInfo?
@@ -9,9 +9,9 @@ struct LogsAndDiagnosticsView: View {
     let isBridgeAvailable: Bool
     let onReload: () -> Void
 
-    @State private var selectedScope: DiagnosticScope = .recent
+    @State private var selectedScope: LogScope = .all
 
-    private var entries: [DiagnosticEntry] {
+    private var allEntries: [DiagnosticEntry] {
         DiagnosticEntry.build(
             runRecoverySnapshot: runRecoverySnapshot,
             registrySnapshot: registrySnapshot,
@@ -22,18 +22,203 @@ struct LogsAndDiagnosticsView: View {
         )
     }
 
+    private var entries: [DiagnosticEntry] {
+        allEntries.filter(\.isLogEntry)
+    }
+
     private var visibleEntries: [DiagnosticEntry] {
-        switch selectedScope {
-        case .recent:
-            return entries
-        case .issues:
-            return entries.filter { $0.scope == .issues || $0.level == .warning || $0.level == .error }
-        case .bridge:
-            return entries.filter { $0.scope == .bridge || $0.component == "bridge.sidecar" }
-        case .checks:
-            return entries.filter { $0.scope == .checks }
+        entries.filter { selectedScope.includes($0) }
+    }
+
+    private var problemLogCount: Int {
+        entries.filter(\.isProblem).count
+    }
+
+    private var refreshedAtText: String {
+        let refreshedAt = max(
+            runRecoverySnapshot?.refreshedAtEpochSeconds ?? 0,
+            registrySnapshot?.refreshedAtEpochSeconds ?? 0
+        )
+
+        guard refreshedAt > 0 else {
+            return "等待 bridge 快照"
+        }
+
+        return "最近刷新 \(DateFormatter.relayDockConsole.string(from: Date(timeIntervalSince1970: TimeInterval(refreshedAt))))"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            logHeader
+
+            Divider()
+
+            logConsole
+
+            Divider()
+
+            logFooter
+        }
+        .background(RelayDockColor.contentBackground)
+    }
+
+    private var logHeader: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(selectedScope.title)
+                    .font(.system(size: 16, weight: .semibold))
+                Text("\(visibleEntries.count) 条结构化日志，来自当前 runtime events 与 snapshot")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 18)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                Picker("日志范围", selection: $selectedScope) {
+                    ForEach(LogScope.allCases) { scope in
+                        Text(scope.shortTitle)
+                            .tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 286)
+                .labelsHidden()
+
+                HStack(spacing: 10) {
+                    ForEach(LogScope.allCases) { scope in
+                        Text("\(scope.shortTitle) \(count(for: scope))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(selectedScope == scope ? .primary : .secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var logConsole: some View {
+        if visibleEntries.isEmpty {
+            VStack(spacing: 10) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.secondary)
+                Text("当前范围没有可展示的日志")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(visibleEntries) { entry in
+                        DiagnosticConsoleRow(entry: entry)
+                        Divider()
+                    }
+                }
+            }
         }
     }
+
+    private var logFooter: some View {
+        HStack(spacing: 18) {
+            ConsoleFooterMetric(
+                title: "日志",
+                value: "\(entries.count)",
+                color: entries.isEmpty ? .secondary : .primary
+            )
+            ConsoleFooterMetric(
+                title: "告警",
+                value: "\(problemLogCount)",
+                color: problemLogCount == 0 ? .secondary : .orange
+            )
+            ConsoleFooterMetric(
+                title: "Bridge",
+                value: isBridgeAvailable ? "已接入" : "缺失",
+                color: isBridgeAvailable ? .green : .red
+            )
+
+            Spacer()
+
+            Text(refreshedAtText)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+
+            if let action = runRecoverySnapshot?.lastAction {
+                Text(action.message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(action.ok ? Color.secondary : .red)
+                    .lineLimit(1)
+            } else {
+                Text("日志只消费当前 snapshot 与 runtime events。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .background(RelayDockColor.controlBackground)
+    }
+
+    private func count(for scope: LogScope) -> Int {
+        entries.filter { scope.includes($0) }.count
+    }
+
+}
+
+private enum LogScope: String, CaseIterable, Identifiable {
+    case all
+    case issues
+    case bridge
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            "近期日志"
+        case .issues:
+            "异常日志"
+        case .bridge:
+            "Bridge / Sidecar"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .all:
+            "全部"
+        case .issues:
+            "异常"
+        case .bridge:
+            "Bridge"
+        }
+    }
+
+    func includes(_ entry: DiagnosticEntry) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .issues:
+            return entry.isProblem
+        case .bridge:
+            return entry.scope == .bridge || entry.component == "bridge.sidecar"
+        }
+    }
+}
+
+struct DiagnosticsView: View {
+    let runRecoverySnapshot: RunRecoverySnapshotResult?
+    let registrySnapshot: RegistrySnapshotResult?
+    let runRecoveryError: BridgeErrorInfo?
+    let registryError: BridgeErrorInfo?
+    let bridgeExecutablePath: String?
+    let isBridgeAvailable: Bool
+    let onReload: () -> Void
 
     private var checks: [DiagnosticCheckItem] {
         DiagnosticCheckItem.build(
@@ -77,101 +262,23 @@ struct LogsAndDiagnosticsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            scopeSidebar
-                .frame(width: 180)
+            diagnosisWorkspace
 
             Divider()
 
-            workspace
-
-            Divider()
-
-            inspector
-                .frame(width: 288)
+            diagnosisInspector
+                .frame(width: 318)
         }
         .background(RelayDockColor.contentBackground)
     }
 
-    private var scopeSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("诊断范围")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 7)
-
-            ForEach(DiagnosticScope.allCases) { scope in
-                Button {
-                    selectedScope = scope
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: scope.systemImage)
-                            .font(.system(size: 12))
-                            .foregroundStyle(selectedScope == scope ? .primary : .secondary)
-                            .frame(width: 16, alignment: .center)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(scope.title)
-                                .font(.system(size: 12, weight: selectedScope == scope ? .semibold : .regular))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Text(scope.subtitle)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Spacer(minLength: 8)
-
-                        Text("\(count(for: scope))")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .frame(width: 26, alignment: .trailing)
-                    }
-                    .frame(height: 34)
-                    .padding(.horizontal, 8)
-                    .contentShape(Rectangle())
-                    .background {
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(selectedScope == scope ? RelayDockColor.sidebarSelection : Color.clear)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(scope.title)，\(count(for: scope)) 条")
-                .accessibilityValue(selectedScope == scope ? "已选择" : "未选择")
-                .padding(.horizontal, 8)
-            }
-
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text("当前上下文")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(contextSummary)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(12)
-        }
-        .background(RelayDockColor.sidebarBackground)
-    }
-
-    private var workspace: some View {
+    private var diagnosisWorkspace: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(selectedScope.title)
+                    Text("诊断")
                         .font(.system(size: 16, weight: .semibold))
-                    Text("\(visibleEntries.count) 条结构化诊断线索，来自当前运行 / 恢复 / 资源快照")
+                    Text("当前检查项、运行异常与 bridge 快照事实")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -192,92 +299,50 @@ struct LogsAndDiagnosticsView: View {
 
             Divider()
 
-            if visibleEntries.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.secondary)
-                    Text("当前范围没有可展示的诊断线索")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(visibleEntries) { entry in
-                            DiagnosticConsoleRow(entry: entry)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    DiagnosisSectionHeader("主动检查")
+
+                    ForEach(checks) { item in
+                        DiagnosticCheckRow(item: item)
+                        Divider()
+                    }
+
+                    DiagnosisSectionHeader("运行异常")
+
+                    if issueRows.isEmpty {
+                        InspectorEmptyState(text: "当前没有 error / reconnecting 条目")
+                    } else {
+                        ForEach(issueRows) { row in
+                            DiagnosisRuntimeIssueRow(row: row)
                             Divider()
                         }
                     }
                 }
             }
-
-            Divider()
-
-            HStack(spacing: 18) {
-                ConsoleFooterMetric(
-                    title: "异常运行",
-                    value: "\(issueRows.count)",
-                    color: issueRows.isEmpty ? .secondary : .orange
-                )
-                ConsoleFooterMetric(
-                    title: "待恢复",
-                    value: "\(recoverableRows.count)",
-                    color: recoverableRows.isEmpty ? .secondary : .blue
-                )
-                ConsoleFooterMetric(
-                    title: "Bridge",
-                    value: isBridgeAvailable ? "已接入" : "缺失",
-                    color: isBridgeAvailable ? .green : .red
-                )
-
-                Spacer()
-
-                if let action = runRecoverySnapshot?.lastAction {
-                    Text(action.message)
-                        .font(.system(size: 11))
-                        .foregroundStyle(action.ok ? Color.secondary : .red)
-                        .lineLimit(1)
-                } else {
-                    Text("控制台保持与当前 snapshot 同步，不额外发明诊断状态机。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .background(RelayDockColor.controlBackground)
         }
     }
 
-    private var inspector: some View {
+    private var diagnosisInspector: some View {
         VStack(spacing: 0) {
-            inspectorSectionHeader("检查项")
-                .padding(.top, 14)
-
-            ForEach(checks) { item in
-                DiagnosticCheckRow(item: item)
-                Divider()
-            }
-
-            inspectorSectionHeader("待恢复动作")
+            DiagnosisSectionHeader("待恢复动作")
+                .padding(.top, 6)
 
             if recoverableRows.isEmpty {
                 InspectorEmptyState(text: "当前没有待恢复条目")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(recoverableRows.prefix(6)) { row in
+                        ForEach(recoverableRows.prefix(8)) { row in
                             InspectorRecoveryRow(row: row)
                             Divider()
                         }
                     }
                 }
-                .frame(maxHeight: 180)
+                .frame(maxHeight: 238)
             }
 
-            inspectorSectionHeader("Bridge / 快照")
+            DiagnosisSectionHeader("Bridge / 快照")
 
             VStack(alignment: .leading, spacing: 7) {
                 InspectorKeyValueRow(title: "sidecar", value: isBridgeAvailable ? "已接入" : "未找到")
@@ -302,7 +367,7 @@ struct LogsAndDiagnosticsView: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("诊断控制台只消费当前 snapshot，后续真实 provider 日志会在 bridge 稳定后接进来。")
+                    Text("诊断只展示当前 snapshot 与 runtime events 投影出的事实。")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -314,36 +379,6 @@ struct LogsAndDiagnosticsView: View {
             Spacer(minLength: 0)
         }
         .background(RelayDockColor.controlBackground)
-    }
-
-    private var contextSummary: String {
-        let hostCount = registrySnapshot?.hosts.count ?? 0
-        let runningCount = runRecoverySnapshot?.summary.runningForwards ?? 0
-        return "\(hostCount) 个主机，\(runningCount) 个运行态条目。"
-    }
-
-    private func count(for scope: DiagnosticScope) -> Int {
-        switch scope {
-        case .recent:
-            return entries.count
-        case .issues:
-            return entries.filter { $0.scope == .issues || $0.level == .warning || $0.level == .error }.count
-        case .bridge:
-            return entries.filter { $0.scope == .bridge || $0.component == "bridge.sidecar" }.count
-        case .checks:
-            return checks.count
-        }
-    }
-
-    private func inspectorSectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 }
 
@@ -365,6 +400,19 @@ private enum DiagnosticScope: String, CaseIterable, Identifiable {
             "Bridge / Sidecar"
         case .checks:
             "检查项"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .recent:
+            "全部"
+        case .issues:
+            "异常"
+        case .bridge:
+            "Bridge"
+        case .checks:
+            "检查"
         }
     }
 
@@ -403,6 +451,27 @@ private struct DiagnosticEntry: Identifiable {
     let component: String
     let summary: String
     let detail: String?
+
+    var isProblem: Bool {
+        switch level {
+        case .warning, .error:
+            return true
+        case .info, .notice:
+            return false
+        }
+    }
+
+    var isLogEntry: Bool {
+        id == "last-action"
+            || id == "bridge-sidecar"
+            || id == "runtime-error"
+            || id == "registry-error"
+            || id.hasPrefix("runtime-event-")
+            || component == "runtime.host"
+            || component == "runtime.retry"
+            || component == "runtime.error"
+            || component == "runtime.recovery"
+    }
 
     static func build(
         runRecoverySnapshot: RunRecoverySnapshotResult?,
@@ -835,6 +904,50 @@ private struct DiagnosticCheckRow: View {
     }
 }
 
+private struct DiagnosisRuntimeIssueRow: View {
+    let row: RunRecoveryRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(row.serviceName)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Text(row.statusText)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(row.level.color)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text(row.providerLabel)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Text("\(row.alias) · \(row.portSummary)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if let error = row.error {
+                Text(error.summary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(row.level.color)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+}
+
 private struct InspectorRecoveryRow: View {
     let row: RunRecoveryRow
 
@@ -864,6 +977,25 @@ private struct InspectorRecoveryRow: View {
                 .foregroundStyle(.blue)
                 .lineLimit(1)
                 .truncationMode(.tail)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+}
+
+private struct DiagnosisSectionHeader: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)

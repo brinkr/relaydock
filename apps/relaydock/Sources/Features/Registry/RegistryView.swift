@@ -3,6 +3,15 @@ import SwiftUI
 import AppKit
 #endif
 
+private enum RegistryStyle {
+    static let hostListBackground = RelayDockColor.sidebarBackground.opacity(0.82)
+    static let workSurface = Color(red: 0.980, green: 0.980, blue: 0.980)
+    static let cardBackground = Color.white
+    static let cardBorder = Color.black.opacity(0.055)
+    static let shallowDivider = Color.black.opacity(0.055)
+    static let toolbarBackground = RelayDockColor.controlBackground.opacity(0.72)
+}
+
 struct RegistryView: View {
     let snapshot: RegistrySnapshotResult?
     @Binding var selectedHostId: String?
@@ -10,6 +19,7 @@ struct RegistryView: View {
     let shellCommand: RegistryShellCommand?
     let onSaveHost: (RegistryHostDraft) throws -> RegistrySnapshotResult
     let onParseSshCommand: (String) throws -> ParseSshCommandResult
+    let onTestProviderTargetConnectivity: (String, UInt16) throws -> ProviderTargetConnectivityResult
     let onSaveRule: (RegistryRuleDraft) throws -> RegistrySnapshotResult
     let onRecoverRule: (String) -> Void
     let onRetryRule: (String) -> Void
@@ -34,7 +44,9 @@ struct RegistryView: View {
         HStack(spacing: 0) {
             hostList
 
-            Divider()
+            Rectangle()
+                .fill(RegistryStyle.shallowDivider)
+                .frame(width: 1)
 
             if let bridgeError {
                 BridgeErrorBanner(error: bridgeError, onReload: onReload)
@@ -60,6 +72,7 @@ struct RegistryView: View {
                 hosts: snapshot?.hosts ?? [],
                 onSaveHost: onSaveHost,
                 onParseSshCommand: onParseSshCommand,
+                onTestProviderTargetConnectivity: onTestProviderTargetConnectivity,
                 onSaveRule: onSaveRule
             ) {
                 activeSheet = nil
@@ -78,7 +91,8 @@ struct RegistryView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Text("资源分组")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.8)
                     .foregroundStyle(.secondary)
 
                 Spacer()
@@ -93,13 +107,13 @@ struct RegistryView: View {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("新建资源分组")
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
 
             if let snapshot {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: 2) {
                         ForEach(snapshot.hosts) { host in
                             RegistryHostRow(
                                 host: host,
@@ -109,7 +123,7 @@ struct RegistryView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 10)
                     .padding(.bottom, 12)
                 }
             } else {
@@ -124,8 +138,8 @@ struct RegistryView: View {
                 Spacer()
             }
         }
-        .frame(width: 224)
-        .background(RelayDockColor.sidebarBackground)
+        .frame(width: 252)
+        .background(RegistryStyle.hostListBackground)
     }
 }
 
@@ -154,21 +168,18 @@ private struct RegistryHostRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 7) {
-                Image(systemName: host.osHint.systemImage)
-                    .font(.system(size: 12))
-                    .foregroundStyle(selected ? RelayDockColor.sidebarAccent : .secondary)
-                    .frame(width: 15)
+            HStack(spacing: 9) {
+                ZStack {
+                    Image(systemName: host.osHint.systemImage)
+                        .font(.system(size: 12))
+                        .foregroundStyle(selected ? RelayDockColor.sidebarAccent : .secondary)
+                }
+                .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 0) {
                     Text(host.name)
-                        .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                        .font(.system(size: 13, weight: selected ? .medium : .regular))
                         .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Text(host.endpoint)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
@@ -178,15 +189,24 @@ private struct RegistryHostRow: View {
                     .fill(host.status.color)
                     .frame(width: 6, height: 6)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(selected ? RelayDockColor.sidebarSelection : Color.clear)
             }
+            .overlay(alignment: .leading) {
+                if selected {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(RelayDockColor.sidebarAccent)
+                        .frame(width: 2)
+                        .padding(.vertical, 6)
+                }
+            }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(host.name)
+        .accessibilityLabel("\(host.name), \(host.endpoint)")
     }
 }
 
@@ -225,10 +245,8 @@ private struct RegistryHostDetail: View {
                 }
             )
 
-            Divider()
-
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 26) {
                     RegistryPresetsSection(
                         presets: host.presets,
                         onNewPreset: {
@@ -257,12 +275,13 @@ private struct RegistryHostDetail: View {
                         onStopRule: onStopRule
                     )
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 18)
             }
+            .background(RegistryStyle.workSurface)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RelayDockColor.contentBackground)
+        .background(RegistryStyle.workSurface)
     }
 }
 
@@ -306,6 +325,11 @@ private struct RegistryHostHeader: View {
         .padding(.horizontal, 16)
         .frame(height: 54)
         .background(RelayDockColor.contentBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(RegistryStyle.shallowDivider)
+                .frame(height: 1)
+        }
     }
 
     private var providerSummary: String {
@@ -318,7 +342,7 @@ private struct RegistryPresetsSection: View {
     let onNewPreset: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 RegistrySectionHeader("启动预设")
 
@@ -332,23 +356,22 @@ private struct RegistryPresetsSection: View {
                 }
                 .buttonStyle(.borderless)
             }
+            .padding(.horizontal, 2)
 
-            LazyVStack(spacing: 0) {
-                ForEach(Array(presets.enumerated()), id: \.element.id) { index, preset in
-                    RegistryPresetRow(preset: preset)
-                    if index < presets.count - 1 {
-                        Divider()
-                            .padding(.leading, 10)
+            if presets.isEmpty {
+                Text("没有配置启动预设")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .italic()
+                    .padding(.horizontal, 2)
+                    .padding(.top, 1)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(presets) { preset in
+                        RegistryPresetRow(preset: preset)
                     }
                 }
-            }
-            .background(RelayDockColor.listBandBackground)
-            .overlay {
-                VStack(spacing: 0) {
-                    Divider()
-                    Spacer()
-                    Divider()
-                }
+                .padding(.top, 1)
             }
         }
     }
@@ -358,51 +381,67 @@ private struct RegistryPresetRow: View {
     let preset: RegistryPreset
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: "play.fill")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.tertiary)
-                .frame(width: 12)
+                .frame(width: 12, height: 16)
+                .padding(.top, 1)
 
-            Text(preset.name)
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
-                .frame(minWidth: 96, alignment: .leading)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Text(preset.name)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
 
-            if preset.derivedFrom != nil {
-                Text("派生")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(RelayDockColor.controlBackground)
+                    if preset.derivedFrom != nil {
+                        Text("派生")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(RelayDockColor.controlBackground.opacity(0.72))
+                            }
                     }
-            }
+                }
 
-            Text(ruleSummary)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                if preset.rules.isEmpty {
+                    Text("没有规则")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(preset.rules.enumerated()), id: \.offset) { _, rule in
+                            HStack(spacing: 5) {
+                                Text(rule.serviceName)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: 138, alignment: .leading)
+
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundStyle(.tertiary)
+
+                                Text(rule.targetLabel)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: 160, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+            }
 
             Spacer(minLength: 8)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .frame(minHeight: 28)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 1)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var ruleSummary: String {
-        if preset.rules.isEmpty {
-            return "没有规则"
-        }
-
-        return preset.rules
-            .map { "\($0.serviceName) -> \($0.targetLabel)" }
-            .joined(separator: "   ")
     }
 }
 
@@ -423,7 +462,7 @@ private struct RegistryRuleGroup: Identifiable {
     }
 }
 
-private struct RegistryRuleGroupBand: View {
+private struct RegistryRuleGroupCard: View {
     let group: RegistryRuleGroup
     let onEditMapping: (RegistryRule) -> Void
     let onEditRule: (RegistryRule) -> Void
@@ -446,8 +485,13 @@ private struct RegistryRuleGroupBand: View {
                 Spacer()
             }
             .padding(.horizontal, 10)
-            .frame(height: 24)
-            .background(RelayDockColor.groupHeaderBackground)
+            .padding(.top, 8)
+            .padding(.bottom, 7)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(RegistryStyle.shallowDivider)
+                    .frame(height: 1)
+            }
 
             ForEach(Array(group.rules.enumerated()), id: \.element.id) { index, rule in
                 RegistryRuleRow(
@@ -460,19 +504,96 @@ private struct RegistryRuleGroupBand: View {
                 )
 
                 if index < group.rules.count - 1 {
-                    Divider()
+                    Rectangle()
+                        .fill(RegistryStyle.shallowDivider)
+                        .frame(height: 1)
                         .padding(.leading, 38)
                 }
             }
         }
-        .background(RelayDockColor.listBandBackground)
-        .overlay {
-            VStack(spacing: 0) {
-                Divider()
-                Spacer()
-                Divider()
-            }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 2)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(RegistryStyle.cardBackground)
         }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(RegistryStyle.cardBorder, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.018), radius: 2, x: 0, y: 1)
+    }
+}
+
+private struct RegistryRuleToolbar: View {
+    @Binding var ruleQuery: String
+    let onImportSSH: () -> Void
+    let onNewRule: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            RegistryRuleFilterField(text: $ruleQuery)
+                .frame(width: 164)
+
+            toolbarDivider
+
+            Button {
+                onImportSSH()
+            } label: {
+                Label("导入 SSH", systemImage: "terminal")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 7)
+
+            toolbarDivider
+
+            Button {
+                onNewRule()
+            } label: {
+                Label("新增规则", systemImage: "plus")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 7)
+        }
+        .padding(3)
+        .background {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(RegistryStyle.toolbarBackground)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(RegistryStyle.cardBorder, lineWidth: 1)
+        }
+    }
+
+    private var toolbarDivider: some View {
+        Rectangle()
+            .fill(RegistryStyle.shallowDivider)
+            .frame(width: 1, height: 15)
+            .padding(.horizontal, 4)
+    }
+}
+
+private struct RegistryRuleSummaryLine: View {
+    let runningCount: Int
+    let visibleCount: Int
+    let totalCount: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("运行中 \(runningCount)")
+            Text("/")
+                .foregroundStyle(.tertiary)
+            Text("当前显示 \(visibleCount)")
+            Text("/")
+                .foregroundStyle(.tertiary)
+            Text("全部 \(totalCount)")
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 2)
     }
 }
 
@@ -501,40 +622,32 @@ private struct RegistryRulesSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 RegistrySectionHeader("规则清单")
 
                 Spacer()
 
-                RegistryRuleFilterField(text: $ruleQuery)
-                    .frame(width: 180)
-
-                Button {
-                    onImportSSH()
-                } label: {
-                    Label("导入 SSH", systemImage: "terminal")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .buttonStyle(.borderless)
-
-                Button {
-                    onNewRule()
-                } label: {
-                    Label("新增规则", systemImage: "plus")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .buttonStyle(.borderless)
+                RegistryRuleToolbar(
+                    ruleQuery: $ruleQuery,
+                    onImportSSH: onImportSSH,
+                    onNewRule: onNewRule
+                )
             }
+            .padding(.horizontal, 2)
 
-            RegistrySubsectionTitle("运行中 \(runningRules.count) / 当前显示 \(rules.count) / 全部 \(totalRuleCount)")
+            RegistryRuleSummaryLine(
+                runningCount: runningRules.count,
+                visibleCount: rules.count,
+                totalCount: totalRuleCount
+            )
 
             if rules.isEmpty {
                 RegistryRulesEmptyState()
             } else {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 12) {
                     ForEach(ruleGroups) { group in
-                        RegistryRuleGroupBand(
+                        RegistryRuleGroupCard(
                             group: group,
                             onEditMapping: onEditMapping,
                             onEditRule: onEditRule,
@@ -558,65 +671,77 @@ private struct RegistryRuleRow: View {
     let onStopRule: (String) -> Void
 
     private enum Metrics {
-        static let serviceWidth: CGFloat = 126
-        static let portWidth: CGFloat = 82
-        static let providerWidth: CGFloat = 108
-        static let statusWidth: CGFloat = 72
-        static let actionWidth: CGFloat = 108
+        static let actionWidth: CGFloat = 132
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 10) {
             ServiceGlyph(name: rule.serviceName)
+                .padding(.top, 2)
 
-            Text(rule.serviceName)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .frame(width: Metrics.serviceWidth, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(rule.serviceName)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
 
-            Text(rule.alias)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(minWidth: 82, maxWidth: .infinity, alignment: .leading)
+                    Text(rule.alias)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-            Text("本地 \(rule.portSummary)")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(width: Metrics.portWidth, alignment: .leading)
+                    Spacer(minLength: 10)
 
-            Text(rule.providerLabel)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(width: Metrics.providerWidth, alignment: .leading)
-
-            Label(rule.runtimeState.title, systemImage: "circle.fill")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(rule.runtimeState.color)
-                .lineLimit(1)
-                .frame(width: Metrics.statusWidth, alignment: .leading)
-
-            HStack(spacing: 8) {
-                actionButton("映射") {
-                    onEditMapping(rule)
+                    Label(rule.runtimeState.title, systemImage: "circle.fill")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(rule.runtimeState.color)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
 
-                actionButton("规则") {
-                    onEditRule(rule)
-                }
+                HStack(spacing: 7) {
+                    RegistryRulePortSummary(portSummary: rule.portSummary)
 
-                runtimeActionButton
+                    Text("|")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+
+                    Text("链路：\(rule.providerLabel)")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Spacer(minLength: 8)
+                }
             }
-            .font(.system(size: 11, weight: .medium))
-            .buttonStyle(.borderless)
-            .controlSize(.mini)
-            .frame(width: Metrics.actionWidth, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ruleActions
         }
-        .padding(.horizontal, 10)
-        .frame(height: 34)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+
+    private var ruleActions: some View {
+        HStack(spacing: 8) {
+            actionButton("映射") {
+                onEditMapping(rule)
+            }
+
+            actionButton("规则") {
+                onEditRule(rule)
+            }
+
+            runtimeActionButton
+        }
+        .font(.system(size: 11, weight: .medium))
+        .buttonStyle(.borderless)
+        .controlSize(.mini)
+        .frame(width: Metrics.actionWidth, alignment: .trailing)
+        .padding(.top, 13)
     }
 
     private func actionButton(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
@@ -649,6 +774,23 @@ private struct RegistryRuleRow: View {
     }
 }
 
+private struct RegistryRulePortSummary: View {
+    let portSummary: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text("本地")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+            Text(portSummary)
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(.primary.opacity(0.78))
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+}
+
 private struct RegistryRuleFilterField: View {
     @Binding var text: String
 
@@ -677,11 +819,7 @@ private struct RegistryRuleFilterField: View {
         .frame(height: 24)
         .background {
             RoundedRectangle(cornerRadius: 6)
-                .fill(RelayDockColor.controlBackground)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(RelayDockColor.subtleBorder, lineWidth: 1)
+                .fill(Color.clear)
         }
     }
 }
@@ -788,6 +926,7 @@ private struct RegistrySheetView: View {
     let hosts: [RegistryHost]
     let onSaveHost: (RegistryHostDraft) throws -> RegistrySnapshotResult
     let onParseSshCommand: (String) throws -> ParseSshCommandResult
+    let onTestProviderTargetConnectivity: (String, UInt16) throws -> ProviderTargetConnectivityResult
     let onSaveRule: (RegistryRuleDraft) throws -> RegistrySnapshotResult
     let onClose: () -> Void
 
@@ -799,6 +938,7 @@ private struct RegistrySheetView: View {
                 subtitle: sheet.subtitle,
                 initialDraft: .blank,
                 onSave: onSaveHost,
+                onTestConnectivity: onTestProviderTargetConnectivity,
                 onClose: onClose
             )
         case let .hostSettings(host):
@@ -807,6 +947,7 @@ private struct RegistrySheetView: View {
                 subtitle: sheet.subtitle,
                 initialDraft: host.hostDraft,
                 onSave: onSaveHost,
+                onTestConnectivity: onTestProviderTargetConnectivity,
                 onClose: onClose
             )
         case let .newRule(host):
@@ -2012,6 +2153,7 @@ private struct RegistryHostEditorSheet: View {
     let subtitle: String
     let initialDraft: RegistryHostDraft
     let onSave: (RegistryHostDraft) throws -> RegistrySnapshotResult
+    let onTestConnectivity: (String, UInt16) throws -> ProviderTargetConnectivityResult
     let onClose: () -> Void
 
     @State private var name: String
@@ -2021,22 +2163,25 @@ private struct RegistryHostEditorSheet: View {
     @State private var tagsText: String
     @State private var osHint: RegistryHostOsHint
     @State private var osDistro: String
-    @State private var status: RegistryHostStatus
     @State private var providerTargets: [RegistryProviderTargetDraft]
     @State private var errorMessage: String?
+    @State private var connectivityResult: RegistryConnectivityTestState?
     @State private var isSaving = false
+    @State private var isTestingConnectivity = false
 
     init(
         title: String,
         subtitle: String,
         initialDraft: RegistryHostDraft,
         onSave: @escaping (RegistryHostDraft) throws -> RegistrySnapshotResult,
+        onTestConnectivity: @escaping (String, UInt16) throws -> ProviderTargetConnectivityResult,
         onClose: @escaping () -> Void
     ) {
         self.title = title
         self.subtitle = subtitle
         self.initialDraft = initialDraft
         self.onSave = onSave
+        self.onTestConnectivity = onTestConnectivity
         self.onClose = onClose
         _name = State(initialValue: initialDraft.name)
         _address = State(initialValue: initialDraft.address)
@@ -2045,7 +2190,6 @@ private struct RegistryHostEditorSheet: View {
         _tagsText = State(initialValue: initialDraft.tags.joined(separator: ", "))
         _osHint = State(initialValue: initialDraft.osHint)
         _osDistro = State(initialValue: initialDraft.osDistro ?? "")
-        _status = State(initialValue: initialDraft.status)
         _providerTargets = State(initialValue: initialDraft.providerTargets)
     }
 
@@ -2063,7 +2207,6 @@ private struct RegistryHostEditorSheet: View {
                         RegistryLabeledField("用户", text: $user)
                         RegistryLabeledField("标签", text: $tagsText, prompt: "用逗号分隔")
                         RegistryEnumPicker("系统类型", selection: $osHint, options: RegistryHostOsHint.editorOptions)
-                        RegistryEnumPicker("状态提示", selection: $status, options: RegistryHostStatus.editorOptions)
                         RegistryLabeledField("发行版", text: $osDistro, prompt: "可选")
                     }
 
@@ -2089,11 +2232,20 @@ private struct RegistryHostEditorSheet: View {
                 }
             }
 
+            if let connectivityResult {
+                RegistryConnectivityResultBanner(state: connectivityResult)
+            }
+
             if let errorMessage {
                 RegistryInlineError(message: errorMessage)
             }
 
             HStack {
+                Button(isTestingConnectivity ? "测试中..." : "测试连接") {
+                    testConnectivity()
+                }
+                .disabled(isSaving || isTestingConnectivity || !canTestConnectivity)
+
                 Spacer()
                 Button("取消", action: onClose)
                 Button(isSaving ? "保存中…" : "保存") {
@@ -2105,6 +2257,15 @@ private struct RegistryHostEditorSheet: View {
         }
         .padding(20)
         .frame(width: 560, height: 620)
+    }
+
+    private var canTestConnectivity: Bool {
+        do {
+            _ = try resolvedConnectivityTarget()
+            return true
+        } catch {
+            return false
+        }
     }
 
     private var sheetHeader: some View {
@@ -2134,7 +2295,7 @@ private struct RegistryHostEditorSheet: View {
                     tags: tags(from: tagsText),
                     osHint: osHint,
                     osDistro: normalized(osDistro),
-                    status: status,
+                    status: statusFromConnectivity(),
                     providerTargets: providerTargets.map {
                         RegistryProviderTargetDraft(
                             id: $0.id,
@@ -2154,6 +2315,75 @@ private struct RegistryHostEditorSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func testConnectivity() {
+        errorMessage = nil
+        isTestingConnectivity = true
+        defer { isTestingConnectivity = false }
+
+        do {
+            let target = try resolvedConnectivityTarget()
+            let result = try onTestConnectivity(target.address, target.port)
+            connectivityResult = .finished(result)
+        } catch let error as BridgeErrorInfo {
+            connectivityResult = .failed(summary: error.summary, detail: error.detail)
+        } catch let error as RegistryEditorValidationError {
+            connectivityResult = .failed(summary: error.summary, detail: error.detail)
+        } catch {
+            connectivityResult = .failed(summary: "连接测试失败", detail: error.localizedDescription)
+        }
+    }
+
+    private func resolvedConnectivityTarget() throws -> RegistryConnectivityTarget {
+        let firstTarget = providerTargets.first
+        let targetAddress = normalized(firstTarget?.targetAddress ?? "") ?? normalized(address)
+        let portSource = firstTarget?.targetPort.map(String.init) ?? portText
+        let targetPort = try parseOptionalPortStrict(portSource, label: "测试端口")
+            ?? defaultPort(for: firstTarget?.kind ?? .ssh)
+
+        guard let targetAddress else {
+            throw RegistryEditorValidationError(
+                summary: "测试目标不完整",
+                detail: "请先填写目标地址或主机地址。"
+            )
+        }
+
+        return RegistryConnectivityTarget(address: targetAddress, port: targetPort)
+    }
+
+    private func statusFromConnectivity() -> RegistryHostStatus {
+        guard !connectivityTargetChangedSinceInitialDraft else {
+            return .unknown
+        }
+
+        guard let connectivityResult else {
+            return initialDraft.status
+        }
+
+        return connectivityResult.hostStatus
+    }
+
+    private var connectivityTargetChangedSinceInitialDraft: Bool {
+        do {
+            let currentTarget = try resolvedConnectivityTarget()
+            let initialTarget = initialConnectivityTarget
+            return currentTarget.address != initialTarget.address || currentTarget.port != initialTarget.port
+        } catch {
+            return true
+        }
+    }
+
+    private var initialConnectivityTarget: RegistryConnectivityTarget {
+        let firstTarget = initialDraft.providerTargets.first
+        let targetAddress = normalized(firstTarget?.targetAddress ?? "")
+            ?? normalized(initialDraft.address)
+            ?? ""
+        let targetPort = firstTarget?.targetPort
+            ?? initialDraft.port
+            ?? defaultPort(for: firstTarget?.kind ?? .ssh)
+
+        return RegistryConnectivityTarget(address: targetAddress, port: targetPort)
     }
 }
 
@@ -2439,8 +2669,20 @@ private struct RegistryLabeledField: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
             TextField(prompt ?? "", text: $text)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .font(.system(size: 12))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .frame(height: 28)
+                .frame(maxWidth: .infinity)
+                .background {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.white.opacity(0.94))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(RegistryStyle.cardBorder.opacity(1.2), lineWidth: 1)
+                }
         }
     }
 }
@@ -2525,6 +2767,86 @@ private struct RegistryInlineError: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.red.opacity(0.08))
             }
+    }
+}
+
+private struct RegistryConnectivityTarget {
+    let address: String
+    let port: UInt16
+}
+
+private enum RegistryConnectivityTestState {
+    case finished(ProviderTargetConnectivityResult)
+    case failed(summary: String, detail: String?)
+
+    var hostStatus: RegistryHostStatus {
+        switch self {
+        case let .finished(result):
+            result.reachable ? .online : .offline
+        case .failed:
+            .offline
+        }
+    }
+}
+
+private struct RegistryConnectivityResultBanner: View {
+    let state: RegistryConnectivityTestState
+
+    private var isReachable: Bool {
+        if case let .finished(result) = state {
+            return result.reachable
+        }
+
+        return false
+    }
+
+    private var title: String {
+        switch state {
+        case let .finished(result):
+            if result.reachable {
+                let latency = result.latencyMillis.map { " · \($0)ms" } ?? ""
+                return "连接可达：\(result.targetAddress):\(result.targetPort)\(latency)"
+            }
+
+            return result.diagnostic?.summary ?? "连接不可达"
+        case let .failed(summary, _):
+            return summary
+        }
+    }
+
+    private var detail: String? {
+        switch state {
+        case let .finished(result):
+            return result.diagnostic?.detail
+        case let .failed(_, detail):
+            return detail
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isReachable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isReachable ? .green : .orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.primary)
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isReachable ? Color.green.opacity(0.08) : Color.orange.opacity(0.09))
+        }
     }
 }
 
@@ -2873,6 +3195,15 @@ private func parseRequiredPort(_ text: String, label: String) throws -> UInt16 {
     }
 
     return value
+}
+
+private func defaultPort(for kind: RegistryProviderKind) -> UInt16 {
+    switch kind {
+    case .ssh:
+        22
+    case .tailscale:
+        22
+    }
 }
 
 private func buildImportedRuleDraftStates(

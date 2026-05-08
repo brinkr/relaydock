@@ -23,7 +23,8 @@ GENERATED_SCREENSHOTS=()
 SHELL_PAGES=(
   "run-recovery|运行与恢复"
   "registry|资源登记"
-  "logs-diagnostics|日志与诊断"
+  "logs|日志"
+  "diagnostics|诊断"
   "preferences|偏好设置"
 )
 

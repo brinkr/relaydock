@@ -264,7 +264,7 @@ final class RelayDockShellViewModel: ObservableObject {
             loadRunRecoverySnapshot()
         case .registry:
             loadRegistrySnapshot()
-        case .logsAndDiagnostics, .preferences:
+        case .logs, .diagnostics, .preferences:
             reloadDiagnosticsWorkspace()
         }
     }
@@ -374,6 +374,29 @@ final class RelayDockShellViewModel: ObservableObject {
         return try bridgeExecutor.parseSshCommand(commandText)
     }
 
+    func testProviderTargetConnectivity(
+        targetAddress: String,
+        targetPort: UInt16
+    ) throws -> ProviderTargetConnectivityResult {
+        guard let bridgeExecutor else {
+            throw BridgeErrorInfo(
+                code: .processFailed,
+                summary: "未找到 RelayDock bridge sidecar",
+                detail: "Expected target/debug/relaydock-bridge in the development workspace.",
+                affectedPort: targetPort,
+                affectedRuleId: nil,
+                affectedRuntimeId: nil,
+                affectedRecoveryId: nil,
+                suggestedRecovery: "Run cargo build -p relaydock-core --bin relaydock-bridge."
+            )
+        }
+
+        return try bridgeExecutor.testProviderTargetConnectivity(
+            targetAddress: targetAddress,
+            targetPort: targetPort
+        )
+    }
+
     func saveRegistryRule(_ rule: RegistryRuleDraft) throws -> RegistrySnapshotResult {
         guard let bridgeExecutor else {
             throw BridgeErrorInfo(
@@ -454,7 +477,8 @@ enum RegistryShellCommandKind: Equatable {
 enum RelayDockSection: String, CaseIterable, Identifiable {
     case runAndRecovery
     case registry
-    case logsAndDiagnostics
+    case logs
+    case diagnostics
     case preferences
 
     var id: String { rawValue }
@@ -465,8 +489,10 @@ enum RelayDockSection: String, CaseIterable, Identifiable {
             "运行与恢复"
         case .registry:
             "资源登记"
-        case .logsAndDiagnostics:
-            "日志与诊断"
+        case .logs:
+            "日志"
+        case .diagnostics:
+            "诊断"
         case .preferences:
             "偏好设置"
         }
@@ -478,8 +504,10 @@ enum RelayDockSection: String, CaseIterable, Identifiable {
             "waveform.path.ecg"
         case .registry:
             "server.rack"
-        case .logsAndDiagnostics:
+        case .logs:
             "doc.text"
+        case .diagnostics:
+            "stethoscope"
         case .preferences:
             "gearshape"
         }
@@ -491,8 +519,10 @@ enum RelayDockSection: String, CaseIterable, Identifiable {
             "waveform.path.ecg"
         case .registry:
             "book"
-        case .logsAndDiagnostics:
+        case .logs:
             "doc.text"
+        case .diagnostics:
+            "stethoscope"
         case .preferences:
             "gearshape"
         }

@@ -3,6 +3,7 @@ import Foundation
 enum RelayDockBridgeCommand: Encodable {
     case checkPortClaim(CheckPortClaimCommand)
     case parseSshCommand(ParseSshCommandCommand)
+    case testProviderTargetConnectivity(TestProviderTargetConnectivityCommand)
     case loadRunRecoverySnapshot
     case loadRegistrySnapshot
     case saveRegistryHost(SaveRegistryHostCommand)
@@ -19,6 +20,9 @@ enum RelayDockBridgeCommand: Encodable {
         case claim
         case commandText = "command_text"
         case knownUsages = "known_usages"
+        case targetAddress = "target_address"
+        case targetPort = "target_port"
+        case timeoutMillis = "timeout_millis"
         case host
         case rule
         case ruleId = "rule_id"
@@ -39,6 +43,11 @@ enum RelayDockBridgeCommand: Encodable {
         case let .parseSshCommand(command):
             try container.encode("parse_ssh_command", forKey: .command)
             try container.encode(command.commandText, forKey: .commandText)
+        case let .testProviderTargetConnectivity(command):
+            try container.encode("test_provider_target_connectivity", forKey: .command)
+            try container.encode(command.targetAddress, forKey: .targetAddress)
+            try container.encode(command.targetPort, forKey: .targetPort)
+            try container.encode(command.timeoutMillis, forKey: .timeoutMillis)
         case .loadRunRecoverySnapshot:
             try container.encode("load_run_recovery_snapshot", forKey: .command)
         case .loadRegistrySnapshot:
@@ -79,6 +88,12 @@ struct CheckPortClaimCommand: Codable, Equatable {
 
 struct ParseSshCommandCommand: Codable, Equatable {
     var commandText: String
+}
+
+struct TestProviderTargetConnectivityCommand: Codable, Equatable {
+    var targetAddress: String
+    var targetPort: UInt16
+    var timeoutMillis: UInt64
 }
 
 struct SaveRegistryHostCommand: Codable, Equatable {
@@ -165,6 +180,7 @@ struct BridgeResponse: Decodable, Equatable {
 
 enum BridgeCommandResult: Decodable, Equatable {
     case portClaimCheck(PortClaimCheckResult)
+    case providerTargetConnectivity(ProviderTargetConnectivityResult)
     case sshCommandParse(ParseSshCommandResult)
     case runRecoverySnapshot(RunRecoverySnapshotResult)
     case registrySnapshot(RegistrySnapshotResult)
@@ -175,6 +191,7 @@ enum BridgeCommandResult: Decodable, Equatable {
 
     private enum ResultType: String, Decodable {
         case portClaimCheck = "port_claim_check"
+        case providerTargetConnectivity = "provider_target_connectivity"
         case sshCommandParse = "ssh_command_parse"
         case runRecoverySnapshot = "run_recovery_snapshot"
         case registrySnapshot = "registry_snapshot"
@@ -186,6 +203,8 @@ enum BridgeCommandResult: Decodable, Equatable {
         switch try container.decode(ResultType.self, forKey: .type) {
         case .portClaimCheck:
             self = .portClaimCheck(try PortClaimCheckResult(from: decoder))
+        case .providerTargetConnectivity:
+            self = .providerTargetConnectivity(try ProviderTargetConnectivityResult(from: decoder))
         case .sshCommandParse:
             self = .sshCommandParse(try ParseSshCommandResult(from: decoder))
         case .runRecoverySnapshot:
@@ -201,6 +220,27 @@ struct PortClaimCheckResult: Codable, Equatable {
     var available: Bool
     var conflict: BridgePortConflict?
     var suggestedPort: UInt16?
+}
+
+struct ProviderTargetConnectivityResult: Codable, Equatable {
+    var targetAddress: String
+    var targetPort: UInt16
+    var reachable: Bool
+    var latencyMillis: UInt64?
+    var checkedAtEpochSeconds: UInt64
+    var diagnostic: ProviderTargetConnectivityDiagnostic?
+}
+
+struct ProviderTargetConnectivityDiagnostic: Codable, Equatable {
+    var code: ProviderTargetConnectivityDiagnosticCode
+    var summary: String
+    var detail: String?
+}
+
+enum ProviderTargetConnectivityDiagnosticCode: String, Codable {
+    case invalidTarget = "invalid_target"
+    case dnsResolutionFailed = "dns_resolution_failed"
+    case connectFailed = "connect_failed"
 }
 
 struct ParseSshCommandResult: Codable, Equatable {

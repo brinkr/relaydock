@@ -87,6 +87,12 @@ struct RelayDockShellView: View {
                 onParseSshCommand: { commandText in
                     try viewModel.parseSshCommand(commandText)
                 },
+                onTestProviderTargetConnectivity: { targetAddress, targetPort in
+                    try viewModel.testProviderTargetConnectivity(
+                        targetAddress: targetAddress,
+                        targetPort: targetPort
+                    )
+                },
                 onSaveRule: { draft in
                     try viewModel.saveRegistryRule(draft)
                 },
@@ -106,8 +112,20 @@ struct RelayDockShellView: View {
                     viewModel.loadRegistrySnapshot()
                 }
             )
-        case .logsAndDiagnostics:
-            LogsAndDiagnosticsView(
+        case .logs:
+            LogsView(
+                runRecoverySnapshot: viewModel.runRecoverySnapshot,
+                registrySnapshot: viewModel.registrySnapshot,
+                runRecoveryError: viewModel.runRecoveryError,
+                registryError: viewModel.registryError,
+                bridgeExecutablePath: viewModel.bridgeExecutablePath,
+                isBridgeAvailable: viewModel.isBridgeAvailable,
+                onReload: {
+                    viewModel.reloadDiagnosticsWorkspace()
+                }
+            )
+        case .diagnostics:
+            DiagnosticsView(
                 runRecoverySnapshot: viewModel.runRecoverySnapshot,
                 registrySnapshot: viewModel.registrySnapshot,
                 runRecoveryError: viewModel.runRecoveryError,
@@ -174,9 +192,10 @@ private struct ShellTopBar: View {
                 case .registry:
                     ToolbarTextButton("重新读取", systemImage: "arrow.clockwise", action: onReload)
                     ToolbarTextButton("新主机", systemImage: "plus", prominence: .primary, action: onNewHost)
-                case .logsAndDiagnostics:
+                case .logs:
                     ToolbarTextButton("重新读取", systemImage: "arrow.clockwise", action: onReload)
-                    ToolbarTextButton("筛选", systemImage: "line.3.horizontal.decrease.circle", action: {})
+                case .diagnostics:
+                    ToolbarTextButton("重新检查", systemImage: "arrow.clockwise", action: onReload)
                 case .preferences:
                     ToolbarTextButton("重新读取", systemImage: "arrow.clockwise", action: onReload)
                 }
@@ -291,6 +310,6 @@ private struct ToolbarTextButton: View {
 
 private extension RelayDockSection {
     var showsSearch: Bool {
-        self != .preferences
+        self != .preferences && self != .diagnostics
     }
 }

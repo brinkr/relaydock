@@ -19,7 +19,8 @@ The first product structure is:
 
 - `运行与恢复`
 - `资源登记`
-- `日志与诊断`
+- `日志`
+- `诊断`
 - `偏好设置`
 
 ## Domain Model

@@ -21,7 +21,8 @@
   "children": [
     "05-07-registry-density-rule-grouping",
     "05-07-validate-real-channel-flow",
-    "05-07-improve-ssh-import-workflow"
+    "05-07-improve-ssh-import-workflow",
+    "05-08-refine-registry-prototype-style"
   ],
   "parent": null,
   "relatedFiles": [],

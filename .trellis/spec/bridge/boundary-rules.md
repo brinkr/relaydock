@@ -191,6 +191,59 @@ Correct:
 {"command":"save_registry_host","host":{"name":"Mac Studio - Office","provider_targets":[{"kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
 ```
 
+## Registry Provider Target Connectivity Test
+
+### 1. Scope / Trigger
+
+- Trigger: `新建资源分组` and `主机设置` need a save-before-test action so users can check whether the configured provider target is reachable before committing it.
+- Scope: first slice tests TCP reachability to `target_address:target_port` only.
+- Boundary: Swift owns the form draft, target selection, and inline result display. Rust core owns DNS resolution, TCP connect timeout, latency measurement, and structured diagnostics.
+
+### 2. Signatures
+
+Rust command:
+
+```json
+{"command":"test_provider_target_connectivity","target_address":"10.0.4.5","target_port":22,"timeout_millis":3000}
+```
+
+Swift entrypoint:
+
+```swift
+testProviderTargetConnectivity(targetAddress:targetPort:)
+```
+
+### 3. Contracts
+
+- The command is transient and must not mutate registry storage, runtime snapshots, or recovery collections.
+- `target_address` is required after trimming.
+- `target_port` must be a non-zero TCP port.
+- `timeout_millis` defaults to `3000` and may be clamped by Rust to a safe range.
+- A successful result means the TCP endpoint accepted a connection. It must not be described as SSH authentication success or remote application health.
+- Swift must not implement its own socket check for this feature.
+- Registry host editor forms must not expose manual `online/offline` selection. The saved host status may be derived from the most recent connectivity result only when it still matches the current target address and port; if the target changed after the last test, save `unknown` rather than preserving stale status.
+
+### 4. Validation & Error Matrix
+
+- Empty target address or zero port -> success envelope with `reachable: false` and diagnostic `invalid_target`.
+- DNS resolution failure -> success envelope with `reachable: false` and diagnostic `dns_resolution_failed`.
+- TCP connection failure or timeout -> success envelope with `reachable: false` and diagnostic `connect_failed`.
+- Malformed command JSON -> bridge-level `invalid_command`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: user enters `111.230.202.80:22`, clicks `测试连接`, and sees a reachable result plus latency when TCP connect succeeds.
+- Base: target is offline and returns a structured failure diagnostic without blocking save forever.
+- Bad: Swift lets users manually choose `在线 / 离线` in the registry form.
+- Bad: Swift preserves an old reachable status after the address or port has changed without a fresh test.
+
+### 6. Tests Required
+
+- Rust unit test for invalid target returning structured diagnostic.
+- Rust unit test for DNS resolution failure returning structured diagnostic.
+- Rust bridge command round-trip asserting result type `provider_target_connectivity`.
+- Swift build must compile bridge models, executor, view model, and registry editor sheet together.
+
 ## Demo Runtime Action Extension
 
 ### 1. Scope / Trigger

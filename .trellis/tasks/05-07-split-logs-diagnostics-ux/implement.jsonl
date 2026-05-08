@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/project/index.md", "reason": "Project architecture and Chinese-first product constraints"}
+{"file": ".trellis/spec/bridge/index.md", "reason": "Bridge boundary for snapshot/event consumption"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Run/recovery snapshot and diagnostics data ownership rules"}
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell owns native presentation"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Prevent Swift-owned runtime or diagnostic state machines"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Logs/diagnostics and native shell UI expectations"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Visual QA and density expectations"}
+{"file": "documents/05-ui-information-architecture.md", "reason": "Top-level module and logs/diagnostics IA guidance"}
+{"file": "documents/11-localport-prototype-reference.md", "reason": "Prototype direction and density reference"}

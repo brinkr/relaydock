@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/swift-shell/index.md", "reason": "Swift shell routing and registry page UI spec entrypoint"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Prototype shell and registry layout constraints"}
+{"file": ".trellis/spec/swift-shell/quality-guidelines.md", "reason": "Visual QA and native shell quality requirements"}
+{"file": ".trellis/tasks/05-06-correct-prototype-ui-style-drift/research/localport-style-audit.md", "reason": "Shared LocalPort shell measurements"}
+{"file": ".trellis/tasks/05-08-refine-registry-prototype-style/research/localport-registry-audit.md", "reason": "Registry-specific LocalPort structure audit"}
