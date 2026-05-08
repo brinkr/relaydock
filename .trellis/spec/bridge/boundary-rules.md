@@ -128,7 +128,9 @@ Rust commands:
 {"command":"load_registry_snapshot"}
 {"command":"parse_ssh_command","command_text":"ssh -L 3000:127.0.0.1:3000 admin@sanjose"}
 {"command":"save_registry_host","host":{"id":"host-mac-studio","name":"Mac Studio - Office","address":"10.0.4.5","port":22,"user":"admin","tags":["office"],"os_hint":"macos","status":"unknown","provider_targets":[{"id":"target-ssh-office","kind":"ssh","label":"SSH · 办公室","target_address":"10.0.4.5","target_port":22}]}}
-{"command":"save_registry_rule","rule":{"id":"rule-relay-admin","host_id":"host-mac-studio","provider_target_id":"target-ssh-office","service_name":"Relay Admin","alias":"admin.office.localhost","kind":"web","tags":["admin","office"],"remote_host":"127.0.0.1","main_local_port":3000,"main_remote_host":"127.0.0.1","main_remote_port":3000,"secondary_ports":[],"notes":null}}
+{"command":"save_registry_host","host":{"id":"host-tailnet","name":"Tailnet Mac","address":"mac-mini.tailnet.ts.net","port":null,"user":null,"tags":["tailnet"],"os_hint":"macos","status":"unknown","provider_targets":[]}}
+{"command":"save_registry_rule","rule":{"id":"rule-relay-admin","host_id":"host-mac-studio","access_mode":"forwarded","provider_target_id":"target-ssh-office","service_name":"Relay Admin","alias":"admin.office.localhost","kind":"web","tags":["admin","office"],"remote_host":"127.0.0.1","main_local_port":3000,"main_remote_host":"127.0.0.1","main_remote_port":3000,"secondary_ports":[],"notes":null}}
+{"command":"save_registry_rule","rule":{"id":"rule-home-assistant","host_id":"host-tailnet","access_mode":"direct","provider_target_id":null,"service_name":"Home Assistant","alias":"homeassistant.tailnet.ts.net","kind":"web","tags":["tailscale"],"remote_host":"homeassistant.tailnet.ts.net","main_local_port":0,"main_remote_host":"homeassistant.tailnet.ts.net","main_remote_port":8123,"secondary_ports":[],"notes":null}}
 ```
 
 Swift entrypoints:
@@ -148,7 +150,12 @@ saveRegistryRule(_ rule: RegistryRuleDraft)
 - `parse_ssh_command` should support common `-L` forms plus OpenSSH `LocalForward` provided through `-o`.
 - Empty storage returns an empty `RegistrySnapshotResult`; Swift must show the empty state until the user creates the first host through `新建资源分组`.
 - `save_registry_host` may create the first saved configuration snapshot; it must not depend on a seeded demo registry.
+- `save_registry_host` may save `provider_targets: []`; a host may start as a direct/local resource container.
 - `save_registry_rule` must update or append a rule, then return the full next `registry_snapshot` for immediate UI refresh.
+- `save_registry_rule.rule.access_mode` defaults to `forwarded` for old JSON. `forwarded` requires `provider_target_id`; `direct` and `local` may omit it.
+- `direct` rules must keep `main_local_port = 0` and store the application port in `main_remote_port`; they are openable registry entries, not tunnel runtime entries.
+- `local` rules use `main_local_port` for the local service entry but still do not enter provider lifecycle.
+- `load_run_recovery_snapshot` must project only `forwarded` rules from saved configuration; direct/local rules stay in registry and diagnostics surfaces.
 - Provider-target drafts in this slice are intentionally narrow: `kind`, `label`, `target_address`, and optional `target_port`. Do not send `auth_ref`, secrets, or Keychain material through this form contract.
 - Production bridge storage path defaults to `~/Library/Application Support/RelayDock/relaydock.sqlite3`.
 - `RELAYDOCK_STORE_PATH` may override the SQLite path for QA or tooling.
@@ -156,6 +163,9 @@ saveRegistryRule(_ rule: RegistryRuleDraft)
 ### 4. Validation & Error Matrix
 
 - Missing host/rule required fields -> `registry_validation_failed`.
+- Forwarded rule without provider target -> `registry_validation_failed`.
+- Direct rule without access host/alias or application port -> `registry_validation_failed`.
+- Local rule without local/service port -> `registry_validation_failed`.
 - Empty or malformed SSH command -> success result with `ssh_command_parse` diagnostics, not a storage mutation.
 - Rule references a host/provider-target mismatch -> `registry_validation_failed`.
 - Provider-target draft includes unsupported credential-like fields -> `registry_validation_failed`.
@@ -165,8 +175,11 @@ saveRegistryRule(_ rule: RegistryRuleDraft)
 ### 5. Good/Base/Bad Cases
 
 - Good: user creates the first host from an empty registry, saves it, and the returned snapshot selects that host immediately.
+- Good: user registers a Tailscale/MagicDNS direct application without provider target; registry shows an `打开` action and run/recovery does not show a tunnel row.
+- Good: SSH import creates forwarded rules with provider target and preserves the existing start/recovery path.
 - Base: user edits a rule and receives the same host list with the updated rule summary after one bridge round-trip.
 - Bad: Swift seeds demo hosts into SQLite or keeps a separate Swift-only registry state machine to fake persistence.
+- Bad: Swift calls `start_rule` for direct/local rows instead of opening their entry URL.
 
 ### 6. Tests Required
 
@@ -174,6 +187,8 @@ saveRegistryRule(_ rule: RegistryRuleDraft)
 - Rust unit test that `parse_ssh_command` returns one rule draft per supported `-L` / `LocalForward` and reports malformed forwards as diagnostics.
 - Rust unit test that `save_registry_host` bootstraps the first saved configuration and returns the new selected host.
 - Rust unit test that `save_registry_rule` updates stored configuration and projects the new rule summary.
+- Rust unit test that direct/local rules save without provider target and are excluded from run/recovery.
+- Rust unit test that `start_rule` rejects direct/local rules before provider launch.
 - Rust unit test that invalid host/rule drafts map to `registry_validation_failed`.
 - Swift build must compile bridge models, executor, view model, and registry editor sheets together.
 
@@ -486,6 +501,7 @@ RelayDockBridgeExecutor.startRule(ruleId:)
 
 - Rust reads SQLite-backed `ConfigurationSnapshot` and finds `Host`, `Rule`, and `ProviderTarget` by `rule_id`.
 - Rust must launch from structured rule fields and provider target fields; imported raw SSH command text must not be used as source of truth.
+- `start_rule` is valid only for `access_mode = forwarded`; direct/local rows must be opened by Swift using their entry URL and must not cross into provider orchestration.
 - Only SSH provider targets are supported in this slice.
 - On launch success, Rust immediately observes provider status once, upserts the resulting `RuntimeInstance` into `RuntimeSnapshot`, and returns a full `run_recovery_snapshot`.
 - `load_run_recovery_snapshot` must merge persisted runtime instances with saved configuration projection. Runtime rows take precedence over recoverable config rows for the same rule.
@@ -494,6 +510,7 @@ RelayDockBridgeExecutor.startRule(ruleId:)
 ### 4. Validation & Error Matrix
 
 - Missing `rule_id` / unknown rule -> `registry_validation_failed`.
+- Direct/local rule -> `registry_validation_failed` with no provider launch.
 - Rule references missing host/provider target -> `registry_validation_failed`.
 - Non-SSH provider target -> `unsupported_provider_target`.
 - Provider target mismatch -> `invalid_provider_target`.

@@ -1,0 +1,9 @@
+{"file": "documents/03-domain-model.md", "reason": "Verify access mode stays aligned with domain model"}
+{"file": "documents/06-provider-and-network-scenarios.md", "reason": "Verify Tailscale direct and provider target semantics"}
+{"file": "documents/07-port-management-foundation.md", "reason": "Verify forwarded services retain port-conflict foundation"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Verify bridge contracts and structured errors"}
+{"file": ".trellis/spec/rust-core/storage-and-diagnostics.md", "reason": "Verify storage validation and compatibility"}
+{"file": ".trellis/spec/rust-core/provider-and-process.md", "reason": "Verify non-forwarded services do not hit OpenSSH"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Verify Swift does not own runtime state machine"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Verify registry/runtime actions match access mode"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer field consistency"}

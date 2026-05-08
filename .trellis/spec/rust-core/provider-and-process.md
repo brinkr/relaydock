@@ -49,6 +49,7 @@ runtime_from_recovery_item(recovery_item, runtime_instance_id)
 ### 3. Contracts
 
 - Only `ProviderTargetType::Ssh` is accepted by the OpenSSH provider.
+- Only `RuleAccessMode::Forwarded` may enter the OpenSSH provider path. Direct/local rules must be rejected by command validation before provider launch.
 - `Rule.host_id`, `Rule.provider_target_id`, and `ProviderTarget.host_id` must all match the launch context.
 - Command construction must use structured `Rule` port mappings, not pasted shell strings.
 - OpenSSH command uses `ssh -N -T`, `ExitOnForwardFailure=yes`, and keepalive options.
@@ -64,6 +65,7 @@ runtime_from_recovery_item(recovery_item, runtime_instance_id)
 ### 4. Validation & Error Matrix
 
 - Non-SSH target -> `unsupported_provider_target`.
+- Direct/local rule passed to `start_rule`, `recover_item`, or local-port override recovery -> `registry_validation_failed`; no provider launch should be attempted.
 - Host/rule/provider target mismatch -> `invalid_provider_target`.
 - Process spawn failure -> `process_start_failed` with command detail and recovery hint.
 - Process observation failure -> `process_status_failed`.
@@ -86,6 +88,7 @@ runtime_from_recovery_item(recovery_item, runtime_instance_id)
 ### 6. Tests Required
 
 - Command construction from structured rule and SSH provider target.
+- Start-rule test verifies direct/local rules are rejected before the launcher is invoked.
 - Rejection of non-SSH provider target.
 - Mock process launcher verifies process start without launching real `ssh`.
 - Running observation marks runtime connected.

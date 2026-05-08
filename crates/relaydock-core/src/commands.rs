@@ -1,7 +1,8 @@
 use crate::domain::{
     Host as DomainHost, HostId, HostStatusHint, LocalAlias, Metadata, OsFamily, PortMapping,
     Preset as DomainPreset, ProviderTarget as DomainProviderTarget, ProviderTargetId,
-    ProviderTargetType, Rule as DomainRule, RuleId, RuntimeInstanceId,
+    ProviderTargetType, Rule as DomainRule, RuleAccessMode as DomainRuleAccessMode, RuleId,
+    RuntimeInstanceId,
 };
 use crate::ports::{detect_conflict, next_available_port, PortClaim, PortConflict, PortUsage};
 use crate::providers::{
@@ -213,7 +214,10 @@ pub struct RegistryRuleDraft {
     pub host_id: String,
     pub service_name: String,
     pub alias: Option<String>,
-    pub provider_target_id: String,
+    #[serde(default)]
+    pub access_mode: RegistryRuleAccessMode,
+    #[serde(default)]
+    pub provider_target_id: Option<String>,
     pub remote_host: String,
     pub main_local_port: u16,
     pub main_remote_host: String,
@@ -467,6 +471,15 @@ pub enum RegistryProviderKind {
     Tailscale,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryRuleAccessMode {
+    #[default]
+    Forwarded,
+    Direct,
+    Local,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryPreset {
     pub id: String,
@@ -486,10 +499,11 @@ pub struct RegistryRule {
     pub id: String,
     pub service_name: String,
     pub alias: String,
+    pub access_mode: RegistryRuleAccessMode,
     pub provider_label: String,
     pub port_summary: String,
     pub runtime_state: RegistryRuleRuntimeState,
-    pub provider_target_id: String,
+    pub provider_target_id: Option<String>,
     pub remote_host: String,
     pub main_local_port: u16,
     pub main_remote_host: String,
@@ -2158,7 +2172,7 @@ where
 
     let (host, rule, provider_target) = find_start_rule_context(&configuration, &instance.rule_id)?;
 
-    if rule.provider_target_id != instance.provider_target_id
+    if rule.provider_target_id.as_ref() != Some(&instance.provider_target_id)
         || rule.host_id != instance.host_id
         || provider_target.id != instance.provider_target_id
     {
@@ -2171,6 +2185,9 @@ where
                 instance.provider_target_id,
                 rule.host_id,
                 rule.provider_target_id
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "<none>".to_string())
             )),
             Some(instance.rule_id.to_string()),
             Some(runtime_instance_id.to_string()),
@@ -2374,8 +2391,9 @@ where
     let mut recovery_collection = store
         .load_recovery_collection()
         .map_err(storage_error_to_bridge)?;
+    let provider_target_id = provider_target.id.clone();
     let recovery_index = recovery_collection.items.iter().position(|item| {
-        item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id
+        item.rule_id == rule_id && item.provider_target_id == provider_target_id
     });
     let runtime_instance_id = RuntimeInstanceId::from(format!("runtime-{rule_id}"));
     let recovery_id = recovery_id_for_rule(rule_id.as_str());
@@ -2479,7 +2497,7 @@ where
 
     if recovery_index.is_some() {
         recovery_collection.items.retain(|item| {
-            !(item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id)
+            !(item.rule_id == rule_id && item.provider_target_id == provider_target_id)
         });
     }
 
@@ -2551,18 +2569,19 @@ fn clear_recovery_item_in_store(
         .map_err(storage_error_to_bridge)?
         .unwrap_or_default();
     let rule_id = rule_id_from_recovery_id(&command.recovery_id)?;
-    let (_, rule, _) = find_start_rule_context(&configuration, &rule_id)?;
+    let (_, _rule, provider_target) = find_start_rule_context(&configuration, &rule_id)?;
+    let provider_target_id = provider_target.id.clone();
     let mut recovery_collection = store
         .load_recovery_collection()
         .map_err(storage_error_to_bridge)?;
     let persisted = recovery_collection
         .items
         .iter()
-        .any(|item| item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id);
+        .any(|item| item.rule_id == rule_id && item.provider_target_id == provider_target_id);
 
     if persisted {
         recovery_collection.items.retain(|item| {
-            !(item.rule_id == rule_id && item.provider_target_id == rule.provider_target_id)
+            !(item.rule_id == rule_id && item.provider_target_id == provider_target_id)
         });
         store
             .save_recovery_collection(&recovery_collection)
@@ -2607,6 +2626,15 @@ fn find_start_rule_context<'a>(
                 Some(format!("rule_id={rule_id}")),
             ))
         })?;
+    if rule.access_mode != DomainRuleAccessMode::Forwarded {
+        return Err(Box::new(BridgeError::registry_validation(
+            "只有本地转发规则可以启动隧道",
+            Some(format!(
+                "rule_id={rule_id}, access_mode={:?}; direct/local services do not have an OpenSSH lifecycle.",
+                rule.access_mode
+            )),
+        )));
+    }
     let host = configuration
         .hosts
         .iter()
@@ -2617,16 +2645,22 @@ fn find_start_rule_context<'a>(
                 Some(format!("rule_id={rule_id}, host_id={}", rule.host_id)),
             ))
         })?;
+    let provider_target_id = rule.provider_target_id.as_ref().ok_or_else(|| {
+        Box::new(BridgeError::registry_validation(
+            "本地转发规则缺少 provider target",
+            Some(format!("rule_id={rule_id}")),
+        ))
+    })?;
     let provider_target = host
         .provider_targets
         .iter()
-        .find(|target| target.id == rule.provider_target_id)
+        .find(|target| target.id == *provider_target_id)
         .ok_or_else(|| {
             Box::new(BridgeError::registry_validation(
                 "规则引用的 provider target 不存在",
                 Some(format!(
                     "rule_id={rule_id}, provider_target_id={}",
-                    rule.provider_target_id
+                    provider_target_id
                 )),
             ))
         })?;
@@ -3004,7 +3038,7 @@ fn run_recovery_host_from_domain(
     let rows = configuration
         .rules
         .iter()
-        .filter(|rule| rule.host_id == host.id)
+        .filter(|rule| rule.host_id == host.id && rule.access_mode == DomainRuleAccessMode::Forwarded)
         .map(|rule| {
             run_recovery_row_from_domain(configuration, runtime_snapshot, recovery_collection, rule)
         })
@@ -3041,7 +3075,11 @@ fn run_recovery_row_from_domain(
     if let Some(recovery_item) = recovery_collection
         .items
         .iter()
-        .find(|item| item.rule_id == rule.id && item.provider_target_id == rule.provider_target_id)
+        .find(|item| {
+            rule.provider_target_id
+                .as_ref()
+                .is_some_and(|target_id| item.rule_id == rule.id && item.provider_target_id == *target_id)
+        })
     {
         return run_recovery_row_from_recovery_item(configuration, rule, recovery_item);
     }
@@ -3059,7 +3097,7 @@ fn run_recovery_row_from_domain(
             .map(|alias| alias.hostname.clone())
             .unwrap_or_default(),
         entry_url: entry_url_for_rule(rule),
-        provider_label: provider_label(configuration, &rule.provider_target_id),
+        provider_label: provider_label_for_rule(configuration, rule),
         port_summary: port_summary(rule),
         state: RunRecoveryRowState::Recoverable,
         status_text: "待恢复".to_string(),
@@ -3484,10 +3522,12 @@ fn registry_preset_from_domain(
                         let target_id = item
                             .provider_target_override
                             .as_ref()
-                            .unwrap_or(&rule.provider_target_id);
+                            .or(rule.provider_target_id.as_ref());
                         RegistryPresetRule {
                             service_name: rule.name.clone(),
-                            target_label: provider_label(snapshot, target_id),
+                            target_label: target_id
+                                .map(|target_id| provider_label(snapshot, target_id))
+                                .unwrap_or_else(|| access_mode_label(&rule.access_mode).to_string()),
                         }
                     })
             })
@@ -3504,10 +3544,11 @@ fn registry_rule_from_domain(snapshot: &ConfigurationSnapshot, rule: &DomainRule
             .as_ref()
             .map(|alias| alias.hostname.clone())
             .unwrap_or_default(),
-        provider_label: provider_label(snapshot, &rule.provider_target_id),
+        access_mode: registry_rule_access_mode_from_domain(&rule.access_mode),
+        provider_label: provider_label_for_rule(snapshot, rule),
         port_summary: port_summary(rule),
         runtime_state: RegistryRuleRuntimeState::Stopped,
-        provider_target_id: rule.provider_target_id.to_string(),
+        provider_target_id: rule.provider_target_id.as_ref().map(ToString::to_string),
         remote_host: rule.remote_host.clone(),
         main_local_port: rule.main_port.local_port,
         main_remote_host: rule.main_port.remote_host.clone(),
@@ -3557,7 +3598,34 @@ fn provider_label(snapshot: &ConfigurationSnapshot, target_id: &ProviderTargetId
         .unwrap_or_else(|| "未命名链路".to_string())
 }
 
+fn provider_label_for_rule(snapshot: &ConfigurationSnapshot, rule: &DomainRule) -> String {
+    rule.provider_target_id
+        .as_ref()
+        .map(|target_id| provider_label(snapshot, target_id))
+        .unwrap_or_else(|| access_mode_label(&rule.access_mode).to_string())
+}
+
+fn access_mode_label(access_mode: &DomainRuleAccessMode) -> &'static str {
+    match access_mode {
+        DomainRuleAccessMode::Forwarded => "本地转发",
+        DomainRuleAccessMode::Direct => "直达应用",
+        DomainRuleAccessMode::Local => "本机应用",
+    }
+}
+
 fn port_summary(rule: &DomainRule) -> String {
+    if rule.access_mode == DomainRuleAccessMode::Direct {
+        let remote_host = rule.remote_host.trim();
+        let remote_port = rule.main_port.remote_port;
+        if !remote_host.is_empty() && remote_port > 0 {
+            return format!("{remote_host}:{remote_port}");
+        }
+    }
+
+    if rule.access_mode == DomainRuleAccessMode::Local {
+        return format!("本机 {}", rule.main_port.local_port);
+    }
+
     let mut ports = vec![rule.main_port.local_port.to_string()];
     ports.extend(
         rule.secondary_ports
@@ -3569,12 +3637,18 @@ fn port_summary(rule: &DomainRule) -> String {
 
 fn entry_url_for_rule(rule: &DomainRule) -> Option<String> {
     let alias = rule.alias.as_ref()?.hostname.as_str();
-    let mut ports = vec![rule.main_port.local_port];
-    ports.extend(
-        rule.secondary_ports
-            .iter()
-            .map(|mapping| mapping.local_port),
-    );
+    let mut ports = if rule.access_mode == DomainRuleAccessMode::Direct {
+        vec![rule.main_port.remote_port]
+    } else {
+        vec![rule.main_port.local_port]
+    };
+    ports.extend(rule.secondary_ports.iter().map(|mapping| {
+        if rule.access_mode == DomainRuleAccessMode::Direct {
+            mapping.remote_port
+        } else {
+            mapping.local_port
+        }
+    }));
     entry_url_from_alias_and_ports(alias, &ports)
 }
 
@@ -3658,14 +3732,6 @@ fn validate_registry_host_draft(draft: &RegistryHostDraft) -> Result<(), Box<Bri
         .into());
     }
 
-    if draft.provider_targets.is_empty() {
-        return Err(BridgeError::registry_validation(
-            "至少需要一个 provider target",
-            Some("host.provider_targets must include at least one target.".to_string()),
-        )
-        .into());
-    }
-
     for target in &draft.provider_targets {
         if target.label.trim().is_empty() {
             return Err(BridgeError::registry_validation(
@@ -3712,34 +3778,65 @@ fn validate_registry_rule_draft(draft: &RegistryRuleDraft) -> Result<(), Box<Bri
         .into());
     }
 
-    if draft.provider_target_id.trim().is_empty() {
-        return Err(BridgeError::registry_validation(
-            "规则缺少 provider target",
-            Some("rule.provider_target_id must not be empty.".to_string()),
-        )
-        .into());
-    }
+    match draft.access_mode {
+        RegistryRuleAccessMode::Forwarded => {
+            if trimmed_provider_target_id(&draft.provider_target_id).is_none() {
+                return Err(BridgeError::registry_validation(
+                    "本地转发规则缺少 provider target",
+                    Some("forwarded rules must include rule.provider_target_id.".to_string()),
+                )
+                .into());
+            }
 
-    if draft.remote_host.trim().is_empty() || draft.main_remote_host.trim().is_empty() {
-        return Err(BridgeError::registry_validation(
-            "远端地址不能为空",
-            Some("rule.remote_host and rule.main_remote_host must not be empty.".to_string()),
-        )
-        .into());
-    }
+            if draft.remote_host.trim().is_empty() || draft.main_remote_host.trim().is_empty() {
+                return Err(BridgeError::registry_validation(
+                    "远端地址不能为空",
+                    Some("rule.remote_host and rule.main_remote_host must not be empty.".to_string()),
+                )
+                .into());
+            }
 
-    if draft.main_local_port == 0 || draft.main_remote_port == 0 {
-        return Err(BridgeError::registry_validation(
-            "主端口映射无效",
-            Some("main port mapping must use ports between 1 and 65535.".to_string()),
-        )
-        .into());
+            if draft.main_local_port == 0 || draft.main_remote_port == 0 {
+                return Err(BridgeError::registry_validation(
+                    "主端口映射无效",
+                    Some("forwarded rules must include valid local and remote ports.".to_string()),
+                )
+                .into());
+            }
+        }
+        RegistryRuleAccessMode::Direct => {
+            if draft.remote_host.trim().is_empty() && normalized_ref(&draft.alias).is_none() {
+                return Err(BridgeError::registry_validation(
+                    "直达应用缺少访问地址",
+                    Some("direct rules must include rule.remote_host or alias.".to_string()),
+                )
+                .into());
+            }
+
+            if draft.main_remote_port == 0 {
+                return Err(BridgeError::registry_validation(
+                    "直达应用端口无效",
+                    Some("direct rules must include a valid remote/application port.".to_string()),
+                )
+                .into());
+            }
+        }
+        RegistryRuleAccessMode::Local => {
+            if draft.main_local_port == 0 && draft.main_remote_port == 0 {
+                return Err(BridgeError::registry_validation(
+                    "本机应用端口无效",
+                    Some("local rules must include a valid local port.".to_string()),
+                )
+                .into());
+            }
+        }
     }
 
     for mapping in &draft.secondary_ports {
-        if mapping.local_port == 0
-            || mapping.remote_port == 0
-            || mapping.remote_host.trim().is_empty()
+        if mapping.remote_port == 0
+            || (draft.access_mode == RegistryRuleAccessMode::Forwarded && mapping.local_port == 0)
+            || (draft.access_mode != RegistryRuleAccessMode::Local
+                && mapping.remote_host.trim().is_empty())
         {
             return Err(BridgeError::registry_validation(
                 "附属端口映射无效",
@@ -3757,8 +3854,6 @@ fn validate_registry_rule_references(
     draft: &RegistryRuleDraft,
 ) -> Result<(), Box<BridgeError>> {
     let host_id = draft.host_id.trim();
-    let provider_target_id = draft.provider_target_id.trim();
-
     let host = configuration
         .hosts
         .iter()
@@ -3769,6 +3864,17 @@ fn validate_registry_rule_references(
                 Some(format!("rule.host_id={host_id}")),
             ))
         })?;
+
+    let Some(provider_target_id) = trimmed_provider_target_id(&draft.provider_target_id) else {
+        if draft.access_mode == RegistryRuleAccessMode::Forwarded {
+            return Err(BridgeError::registry_validation(
+                "本地转发规则缺少 provider target",
+                Some(format!("rule.host_id={host_id}, access_mode=forwarded")),
+            )
+            .into());
+        }
+        return Ok(());
+    };
 
     if host
         .provider_targets
@@ -3841,6 +3947,28 @@ fn domain_rule_from_draft(draft: RegistryRuleDraft) -> Result<DomainRule, Box<Br
         .unwrap_or_else(|| generated_id("rule", &draft.service_name));
     let rule_id = RuleId::from(rule_id);
 
+    let access_mode = domain_rule_access_mode_from_registry(&draft.access_mode);
+    let main_local_port = match draft.access_mode {
+        RegistryRuleAccessMode::Direct => 0,
+        RegistryRuleAccessMode::Forwarded | RegistryRuleAccessMode::Local => {
+            if draft.main_local_port == 0 {
+                draft.main_remote_port
+            } else {
+                draft.main_local_port
+            }
+        }
+    };
+    let main_remote_host = if draft.main_remote_host.trim().is_empty() {
+        draft.remote_host.trim()
+    } else {
+        draft.main_remote_host.trim()
+    };
+    let remote_host = if draft.remote_host.trim().is_empty() {
+        main_remote_host
+    } else {
+        draft.remote_host.trim()
+    };
+
     Ok(DomainRule {
         id: rule_id.clone(),
         host_id: HostId::from(draft.host_id.trim().to_string()),
@@ -3851,20 +3979,35 @@ fn domain_rule_from_draft(draft: RegistryRuleDraft) -> Result<DomainRule, Box<Br
             generated: false,
             editable: true,
         }),
-        provider_target_id: ProviderTargetId::from(draft.provider_target_id.trim().to_string()),
-        remote_host: draft.remote_host.trim().to_string(),
+        access_mode,
+        provider_target_id: trimmed_provider_target_id(&draft.provider_target_id)
+            .map(|id| ProviderTargetId::from(id.to_string())),
+        remote_host: remote_host.to_string(),
         main_port: PortMapping::new(
-            draft.main_local_port,
-            draft.main_remote_host.trim(),
+            main_local_port,
+            main_remote_host,
             draft.main_remote_port,
         ),
         secondary_ports: draft
             .secondary_ports
             .into_iter()
             .map(|mapping| {
+                let local_port = match draft.access_mode {
+                    RegistryRuleAccessMode::Direct => 0,
+                    RegistryRuleAccessMode::Forwarded | RegistryRuleAccessMode::Local => {
+                        mapping.local_port
+                    }
+                };
+                let remote_host_for_mapping = if draft.access_mode == RegistryRuleAccessMode::Local
+                    && mapping.remote_host.trim().is_empty()
+                {
+                    remote_host
+                } else {
+                    mapping.remote_host.trim()
+                };
                 PortMapping::new(
-                    mapping.local_port,
-                    mapping.remote_host.trim(),
+                    local_port,
+                    remote_host_for_mapping,
                     mapping.remote_port,
                 )
             })
@@ -3978,6 +4121,40 @@ fn domain_provider_kind_from_registry(kind: RegistryProviderKind) -> ProviderTar
         RegistryProviderKind::Ssh => ProviderTargetType::Ssh,
         RegistryProviderKind::Tailscale => ProviderTargetType::Tailscale,
     }
+}
+
+fn domain_rule_access_mode_from_registry(
+    access_mode: &RegistryRuleAccessMode,
+) -> DomainRuleAccessMode {
+    match access_mode {
+        RegistryRuleAccessMode::Forwarded => DomainRuleAccessMode::Forwarded,
+        RegistryRuleAccessMode::Direct => DomainRuleAccessMode::Direct,
+        RegistryRuleAccessMode::Local => DomainRuleAccessMode::Local,
+    }
+}
+
+fn registry_rule_access_mode_from_domain(
+    access_mode: &DomainRuleAccessMode,
+) -> RegistryRuleAccessMode {
+    match access_mode {
+        DomainRuleAccessMode::Forwarded => RegistryRuleAccessMode::Forwarded,
+        DomainRuleAccessMode::Direct => RegistryRuleAccessMode::Direct,
+        DomainRuleAccessMode::Local => RegistryRuleAccessMode::Local,
+    }
+}
+
+fn trimmed_provider_target_id(value: &Option<String>) -> Option<&str> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn normalized_ref(value: &Option<String>) -> Option<&str> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn storage_error_to_bridge(error: StorageError) -> Box<BridgeError> {
@@ -4254,7 +4431,8 @@ mod tests {
                     generated: true,
                     editable: true,
                 }),
-                provider_target_id: tailscale_target.id.clone(),
+                access_mode: DomainRuleAccessMode::Forwarded,
+                provider_target_id: Some(tailscale_target.id.clone()),
                 remote_host: "127.0.0.1".to_string(),
                 main_port: PortMapping::new(3000, "127.0.0.1", 3000),
                 secondary_ports: vec![PortMapping::new(3001, "127.0.0.1", 3001)],
@@ -4280,7 +4458,7 @@ mod tests {
 
     fn sample_configuration_with_ssh_rule() -> ConfigurationSnapshot {
         let mut configuration = sample_configuration();
-        configuration.rules[0].provider_target_id = ProviderTargetId::from("target-home-ssh");
+        configuration.rules[0].provider_target_id = Some(ProviderTargetId::from("target-home-ssh"));
         configuration
     }
 
@@ -4784,6 +4962,39 @@ mod tests {
     }
 
     #[test]
+    fn start_rule_to_store_rejects_direct_rule_before_provider_launch() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let mut configuration = sample_configuration_with_ssh_rule();
+        configuration.rules[0].access_mode = DomainRuleAccessMode::Direct;
+        configuration.rules[0].provider_target_id = None;
+        configuration.rules[0].main_port = PortMapping::new(0, "react.home.tailnet.ts.net", 3000);
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+        let launched = Rc::new(RefCell::new(Vec::new()));
+        let provider = OpenSshProvider::new(MockLauncher {
+            launched: launched.clone(),
+            next_process: MockProcess {
+                pid: Some(4242),
+                exit: None,
+            },
+        });
+
+        let error = start_rule_to_store(
+            &mut store,
+            StartRuleCommand {
+                rule_id: "rule-react".to_string(),
+            },
+            provider,
+        )
+        .expect_err("direct rule must not start a provider");
+
+        assert_eq!(error.code, BridgeErrorCode::RegistryValidationFailed);
+        assert_eq!(error.summary, "只有本地转发规则可以启动隧道");
+        assert!(launched.borrow().is_empty());
+    }
+
+    #[test]
     fn load_run_recovery_snapshot_projects_saved_runtime_instances() {
         let mut store = RelayDockStore::in_memory().expect("store opens");
         let configuration = sample_configuration_with_ssh_rule();
@@ -5053,7 +5264,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![
                 crate::runtime::LocalPortBinding::new(3000, "127.0.0.1", 3000),
                 crate::runtime::LocalPortBinding::new(3001, "127.0.0.1", 3001),
@@ -5144,7 +5355,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![crate::runtime::LocalPortBinding::new(
                 3000,
                 "127.0.0.1",
@@ -5244,7 +5455,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![crate::runtime::LocalPortBinding::new(
                 3000,
                 "127.0.0.1",
@@ -5292,7 +5503,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![crate::runtime::LocalPortBinding::new(
                 3000,
                 "127.0.0.1",
@@ -5353,7 +5564,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![crate::runtime::LocalPortBinding::new(
                 3000,
                 "127.0.0.1",
@@ -5419,7 +5630,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![crate::runtime::LocalPortBinding::new(
                 3000,
                 "127.0.0.1",
@@ -5524,7 +5735,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![crate::runtime::LocalPortBinding::new(
                 3000,
                 "127.0.0.1",
@@ -5573,7 +5784,7 @@ mod tests {
         let recovery = crate::runtime::RecoveryItem {
             rule_id: rule.id.clone(),
             host_id: rule.host_id.clone(),
-            provider_target_id: rule.provider_target_id.clone(),
+            provider_target_id: rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             last_local_bindings: vec![crate::runtime::LocalPortBinding::new(
                 4300,
                 "127.0.0.1",
@@ -5642,7 +5853,7 @@ mod tests {
         let recovery = crate::runtime::RecoveryItem {
             rule_id: rule.id.clone(),
             host_id: rule.host_id.clone(),
-            provider_target_id: rule.provider_target_id.clone(),
+            provider_target_id: rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             last_local_bindings: vec![
                 crate::runtime::LocalPortBinding::new(4300, "127.0.0.1", 3000),
                 crate::runtime::LocalPortBinding::new(4301, "127.0.0.1", 3001),
@@ -5719,7 +5930,7 @@ mod tests {
         let recovery = crate::runtime::RecoveryItem {
             rule_id: rule.id.clone(),
             host_id: rule.host_id.clone(),
-            provider_target_id: rule.provider_target_id.clone(),
+            provider_target_id: rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             last_local_bindings: vec![crate::runtime::LocalPortBinding::new(
                 4300,
                 "127.0.0.1",
@@ -5780,7 +5991,7 @@ mod tests {
         let recovery = crate::runtime::RecoveryItem {
             rule_id: rule.id.clone(),
             host_id: rule.host_id.clone(),
-            provider_target_id: rule.provider_target_id.clone(),
+            provider_target_id: rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             last_local_bindings: vec![crate::runtime::LocalPortBinding::new(
                 4300,
                 "127.0.0.1",
@@ -5891,7 +6102,7 @@ mod tests {
             RuntimeInstanceId::from("runtime-rule-react"),
             rule.id.clone(),
             rule.host_id.clone(),
-            rule.provider_target_id.clone(),
+            rule.provider_target_id.clone().expect("sample forwarded rule has provider target"),
             vec![crate::runtime::LocalPortBinding::new(
                 3000,
                 "127.0.0.1",
@@ -6012,6 +6223,33 @@ mod tests {
     }
 
     #[test]
+    fn save_registry_host_allows_host_without_provider_targets() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let snapshot = save_registry_host_to_store(
+            &mut store,
+            SaveRegistryHostCommand {
+                host: RegistryHostDraft {
+                    id: None,
+                    name: "Tailscale Mac".to_string(),
+                    address: "mac-mini.tailnet.ts.net".to_string(),
+                    port: None,
+                    user: None,
+                    tags: vec!["tailnet".to_string()],
+                    os_hint: RegistryHostOsHint::Macos,
+                    os_distro: None,
+                    status: RegistryHostStatus::Unknown,
+                    provider_targets: Vec::new(),
+                },
+            },
+        )
+        .expect("host-only registry entry saves");
+
+        assert_eq!(snapshot.hosts.len(), 1);
+        assert!(snapshot.hosts[0].provider_targets.is_empty());
+        assert_eq!(snapshot.hosts[0].endpoint, "mac-mini.tailnet.ts.net");
+    }
+
+    #[test]
     fn save_registry_rule_to_store_updates_rule_and_projects_new_summary() {
         let mut store = RelayDockStore::in_memory().expect("store opens");
         let configuration = sample_configuration();
@@ -6027,7 +6265,8 @@ mod tests {
                     host_id: "host-home".to_string(),
                     service_name: "React 前端".to_string(),
                     alias: Some("react.office.localhost".to_string()),
-                    provider_target_id: "target-home-ssh".to_string(),
+                    access_mode: RegistryRuleAccessMode::Forwarded,
+                    provider_target_id: Some("target-home-ssh".to_string()),
                     remote_host: "127.0.0.1".to_string(),
                     main_local_port: 4300,
                     main_remote_host: "127.0.0.1".to_string(),
@@ -6054,6 +6293,86 @@ mod tests {
     }
 
     #[test]
+    fn save_registry_rule_to_store_accepts_direct_and_local_access_modes() {
+        let mut store = RelayDockStore::in_memory().expect("store opens");
+        let mut configuration = sample_configuration();
+        configuration.hosts[0].provider_targets.clear();
+        configuration.rules.clear();
+        configuration.presets.clear();
+        store
+            .save_configuration(&configuration)
+            .expect("configuration saves");
+
+        let direct_snapshot = save_registry_rule_to_store(
+            &mut store,
+            SaveRegistryRuleCommand {
+                rule: RegistryRuleDraft {
+                    id: Some("rule-direct".to_string()),
+                    host_id: "host-home".to_string(),
+                    service_name: "Home Assistant".to_string(),
+                    alias: Some("homeassistant.tailnet.ts.net".to_string()),
+                    access_mode: RegistryRuleAccessMode::Direct,
+                    provider_target_id: None,
+                    remote_host: "homeassistant.tailnet.ts.net".to_string(),
+                    main_local_port: 0,
+                    main_remote_host: "homeassistant.tailnet.ts.net".to_string(),
+                    main_remote_port: 8123,
+                    secondary_ports: Vec::new(),
+                    kind: Some("web".to_string()),
+                    tags: vec!["tailscale".to_string()],
+                    notes: None,
+                },
+            },
+        )
+        .expect("direct rule saves");
+        let direct_rule = &direct_snapshot.hosts[0].rules[0];
+        assert_eq!(direct_rule.access_mode, RegistryRuleAccessMode::Direct);
+        assert_eq!(direct_rule.provider_target_id, None);
+        assert_eq!(direct_rule.provider_label, "直达应用");
+        assert_eq!(direct_rule.port_summary, "homeassistant.tailnet.ts.net:8123");
+        assert_eq!(direct_rule.main_local_port, 0);
+
+        let local_snapshot = save_registry_rule_to_store(
+            &mut store,
+            SaveRegistryRuleCommand {
+                rule: RegistryRuleDraft {
+                    id: Some("rule-local".to_string()),
+                    host_id: "host-home".to_string(),
+                    service_name: "Local Vite".to_string(),
+                    alias: Some("localhost".to_string()),
+                    access_mode: RegistryRuleAccessMode::Local,
+                    provider_target_id: None,
+                    remote_host: "127.0.0.1".to_string(),
+                    main_local_port: 5173,
+                    main_remote_host: "127.0.0.1".to_string(),
+                    main_remote_port: 5173,
+                    secondary_ports: Vec::new(),
+                    kind: Some("web".to_string()),
+                    tags: vec!["local".to_string()],
+                    notes: None,
+                },
+            },
+        )
+        .expect("local rule saves");
+
+        assert_eq!(local_snapshot.hosts[0].rules.len(), 2);
+        assert!(local_snapshot
+            .hosts[0]
+            .rules
+            .iter()
+            .any(|rule| rule.access_mode == RegistryRuleAccessMode::Local
+                && rule.provider_label == "本机应用"));
+
+        let run_snapshot = load_run_recovery_snapshot_from_store(
+            &mut store,
+            &MockPidController::running(),
+            &MockTunnelHealthChecker::healthy(),
+        )
+        .expect("run snapshot loads");
+        assert!(run_snapshot.hosts.is_empty());
+    }
+
+    #[test]
     fn save_registry_rule_to_store_rejects_missing_host_reference() {
         let mut store = RelayDockStore::in_memory().expect("store opens");
         store
@@ -6068,7 +6387,8 @@ mod tests {
                     host_id: "missing-host".to_string(),
                     service_name: "导入规则".to_string(),
                     alias: None,
-                    provider_target_id: "target-home-ssh".to_string(),
+                    access_mode: RegistryRuleAccessMode::Forwarded,
+                    provider_target_id: Some("target-home-ssh".to_string()),
                     remote_host: "127.0.0.1".to_string(),
                     main_local_port: 18317,
                     main_remote_host: "127.0.0.1".to_string(),
@@ -6124,7 +6444,8 @@ mod tests {
                     host_id: "host-home".to_string(),
                     service_name: "导入规则".to_string(),
                     alias: None,
-                    provider_target_id: "target-other-ssh".to_string(),
+                    access_mode: RegistryRuleAccessMode::Forwarded,
+                    provider_target_id: Some("target-other-ssh".to_string()),
                     remote_host: "127.0.0.1".to_string(),
                     main_local_port: 18317,
                     main_remote_host: "127.0.0.1".to_string(),

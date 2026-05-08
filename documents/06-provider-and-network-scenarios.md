@@ -1,6 +1,6 @@
 # RelayDock Provider 与网络场景
 
-更新时间：2026-04-22
+更新时间：2026-05-08
 
 ## 1. 为什么需要 Provider 抽象
 
@@ -24,6 +24,14 @@ RelayDock 不需要深入理解：
 - Tailscale 是否通过其它机器二次转发
 
 这些都应视为 provider target 的一部分。
+
+但并不是所有可访问服务都需要 provider 生命周期。Rule / Service 需要通过 `access_mode` 区分：
+
+- `forwarded`：通过 SSH/provider 建立本地端口入口。
+- `direct`：目标地址已经可直接访问，例如 Tailscale tailnet IP / MagicDNS 上的 Web 应用。
+- `local`：本机已有服务入口。
+
+Tailscale 默认更适合登记为 `direct` 服务：用户点击入口即可打开，不需要显示启动、停止、恢复、重试等隧道动作。只有当远端服务只监听 loopback、需要固定本地域名/本地端口、或需要借助 SSH 中转链路时，Tailscale 相关目标才应作为 `forwarded` 服务的一部分。
 
 ## 4. 已确认的真实场景
 
@@ -104,11 +112,10 @@ RelayDock 不需要把它单独做成产品概念。
 
 ### 示例 2：Tailscale 直连
 
-- `tailscale -> chuncheon`
+- `direct -> http://chuncheon.tailnet.ts.net:8123/`
 
 ### 示例 3：广州中转后的可用 target
 
-- `ssh -> guangzhou-relay-for-chuncheon`
+- `forwarded -> ssh target: guangzhou-relay-for-chuncheon`
 
 对 RelayDock 而言，这三者都应该以统一 target 形式出现。
-

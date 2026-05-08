@@ -78,6 +78,14 @@ The selected-host detail should use a host header plus a faint gray work surface
 
 Registry rule rows may use a compact two-line service-item layout when it better matches the prototype: first line for service identity, alias, and status; second line for local port and provider/link context. Keep row actions in stable fixed slots on the right: configuration actions first (`映射`, `规则`), followed by exactly one state action (`停止`, `启动`, `恢复`, or `重试`) when applicable. Long service names, aliases, ports, and provider labels should truncate inside their row areas rather than shifting the action cluster.
 
+Access mode rules:
+
+- `本地转发` rows may show tunnel lifecycle actions (`启动` / `停止` / `恢复` / `重试`) and mapping copy.
+- `直达应用` and `本机应用` rows must show registry/open-entry behavior, not tunnel lifecycle. Use `入口` / `规则` / `打开` style actions and a neutral `已登记` status.
+- Direct/local rows may appear in registry groups such as `直达应用` and `本机应用`; do not hide them under `已停止`, because they are not stopped tunnels.
+- A host with no provider target is valid for direct/local resources. The host editor must allow removing the last provider target and should explain that SSH forwarding can add one later.
+- Visual QA dense fixtures must include at least one direct and one local rule so UI regressions cannot assume every registry row is a tunnel.
+
 Prefer:
 
 - shallow borders on the host-list split, host header bottom, and rule-card container

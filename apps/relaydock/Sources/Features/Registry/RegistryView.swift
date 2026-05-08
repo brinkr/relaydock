@@ -446,19 +446,73 @@ private struct RegistryPresetRow: View {
 }
 
 private struct RegistryRuleGroup: Identifiable {
-    let state: RegistryRuleRuntimeState
+    let kind: RegistryRuleGroupKind
     let rules: [RegistryRule]
 
     var id: String {
-        state.rawValue
+        kind.id
     }
 
     var title: String {
-        state.groupTitle
+        kind.title
     }
 
     var tint: Color {
-        state.color
+        kind.color
+    }
+}
+
+private enum RegistryRuleGroupKind: Identifiable {
+    case forwarded(RegistryRuleRuntimeState)
+    case direct
+    case local
+
+    var id: String {
+        switch self {
+        case let .forwarded(state):
+            "forwarded-\(state.rawValue)"
+        case .direct:
+            "direct"
+        case .local:
+            "local"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case let .forwarded(state):
+            state.groupTitle
+        case .direct:
+            "直达应用"
+        case .local:
+            "本机应用"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case let .forwarded(state):
+            state.color
+        case .direct:
+            .blue
+        case .local:
+            .green
+        }
+    }
+
+    func contains(_ rule: RegistryRule) -> Bool {
+        switch self {
+        case let .forwarded(state):
+            rule.accessMode == .forwarded && rule.runtimeState == state
+        case .direct:
+            rule.accessMode == .direct
+        case .local:
+            rule.accessMode == .local
+        }
+    }
+
+    static var displayOrder: [RegistryRuleGroupKind] {
+        [.forwarded(.running), .direct, .local, .forwarded(.recoverable), .forwarded(.error), .forwarded(.stopped)]
     }
 }
 
@@ -611,13 +665,13 @@ private struct RegistryRulesSection: View {
     let onStopRule: (String) -> Void
 
     private var ruleGroups: [RegistryRuleGroup] {
-        RegistryRuleRuntimeState.registryDisplayOrder.compactMap { state in
-            let groupRules = rules.filter { $0.runtimeState == state }
+        RegistryRuleGroupKind.displayOrder.compactMap { kind in
+            let groupRules = rules.filter { kind.contains($0) }
             guard !groupRules.isEmpty else {
                 return nil
             }
 
-            return RegistryRuleGroup(state: state, rules: groupRules)
+            return RegistryRuleGroup(kind: kind, rules: groupRules)
         }
     }
 
@@ -694,21 +748,21 @@ private struct RegistryRuleRow: View {
 
                     Spacer(minLength: 10)
 
-                    Label(rule.runtimeState.title, systemImage: "circle.fill")
+                    Label(rule.registryStatusTitle, systemImage: "circle.fill")
                         .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(rule.runtimeState.color)
+                        .foregroundStyle(rule.registryStatusColor)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
 
                 HStack(spacing: 7) {
-                    RegistryRulePortSummary(portSummary: rule.portSummary)
+                    RegistryRulePortSummary(accessMode: rule.accessMode, portSummary: rule.portSummary)
 
                     Text("|")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
 
-                    Text("链路：\(rule.providerLabel)")
+                    Text("\(rule.accessMode.providerLabelPrefix)：\(rule.providerLabel)")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -727,7 +781,7 @@ private struct RegistryRuleRow: View {
 
     private var ruleActions: some View {
         HStack(spacing: 8) {
-            actionButton("映射") {
+            actionButton(rule.accessMode.entryActionTitle) {
                 onEditMapping(rule)
             }
 
@@ -744,42 +798,64 @@ private struct RegistryRuleRow: View {
         .padding(.top, 13)
     }
 
-    private func actionButton(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
+    private func actionButton(
+        _ title: String,
+        role: ButtonRole? = nil,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(title, role: role, action: action)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .frame(width: 30, alignment: .trailing)
+            .disabled(disabled)
     }
 
     @ViewBuilder
     private var runtimeActionButton: some View {
-        switch rule.runtimeState {
-        case .running:
-            actionButton("停止", role: .destructive) {
-                onStopRule(rule.id)
+        if rule.accessMode != .forwarded {
+            actionButton("打开", disabled: rule.entryURL == nil) {
+                openRuleEntry(rule)
             }
-        case .recoverable:
-            actionButton("恢复") {
-                onRecoverRule(rule.id)
-            }
-        case .error:
-            actionButton("重试") {
-                onRetryRule(rule.id)
-            }
-        case .stopped:
-            actionButton("启动") {
-                onRecoverRule(rule.id)
+        } else {
+            switch rule.runtimeState {
+            case .running:
+                actionButton("停止", role: .destructive) {
+                    onStopRule(rule.id)
+                }
+            case .recoverable:
+                actionButton("恢复") {
+                    onRecoverRule(rule.id)
+                }
+            case .error:
+                actionButton("重试") {
+                    onRetryRule(rule.id)
+                }
+            case .stopped:
+                actionButton("启动") {
+                    onRecoverRule(rule.id)
+                }
             }
         }
+    }
+
+    private func openRuleEntry(_ rule: RegistryRule) {
+        #if os(macOS)
+        guard let url = rule.entryURL else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+        #endif
     }
 }
 
 private struct RegistryRulePortSummary: View {
+    let accessMode: RegistryRuleAccessMode
     let portSummary: String
 
     var body: some View {
         HStack(spacing: 5) {
-            Text("本地")
+            Text(accessMode.portPrefix)
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
             Text(portSummary)
@@ -893,7 +969,7 @@ private enum RegistrySheet: Identifiable {
     var subtitle: String {
         switch self {
         case .newHost:
-            "创建第一份保存配置，并建立至少一个 provider target。"
+            "创建第一份保存配置；直达或本机资源可以先不添加 provider target。"
         case let .hostSettings(host), let .newPreset(host), let .importSSH(host), let .newRule(host):
             "\(host.name) · \(host.endpoint)"
         case let .editMapping(_, rule), let .editRule(_, rule):
@@ -912,9 +988,9 @@ private enum RegistrySheet: Identifiable {
         case .importSSH:
             "这里会粘贴 ssh -L 命令，由 Rust core 解析成主机、target 和规则草稿。"
         case .newRule:
-            "这里会填写服务名、别名、本地端口、远端地址和 provider target。"
+            "这里会填写服务名、访问方式、入口地址和需要时的 provider target。"
         case .editMapping:
-            "这里会调整端口映射；运行态的临时本地端口覆盖仍从运行页处理。"
+            "这里会调整访问入口；运行态的临时本地端口覆盖仍从运行页处理。"
         case .editRule:
             "这里会编辑配置规则本身，不直接操作当前运行实例。"
         }
@@ -2215,10 +2291,14 @@ private struct RegistryHostEditorSheet: View {
                             RegistryProviderTargetDraftEditor(
                                 title: "链路 \(index + 1)",
                                 draft: $providerTargets[index],
-                                canRemove: providerTargets.count > 1
+                                canRemove: true
                             ) {
                                 providerTargets.remove(at: index)
                             }
+                        }
+
+                        if providerTargets.isEmpty {
+                            RegistryInlineNotice(message: "当前主机没有 provider target。直达应用和本机应用可以直接登记；需要 SSH 本地转发时再新增链路。")
                         }
 
                         Button {
@@ -2397,6 +2477,7 @@ private struct RegistryRuleEditorSheet: View {
 
     @State private var serviceName: String
     @State private var alias: String
+    @State private var accessMode: RegistryRuleAccessMode
     @State private var providerTargetId: String
     @State private var remoteHost: String
     @State private var mainLocalPortText: String
@@ -2424,7 +2505,8 @@ private struct RegistryRuleEditorSheet: View {
         self.onClose = onClose
         _serviceName = State(initialValue: initialDraft.serviceName)
         _alias = State(initialValue: initialDraft.alias ?? "")
-        _providerTargetId = State(initialValue: initialDraft.providerTargetId)
+        _accessMode = State(initialValue: initialDraft.accessMode)
+        _providerTargetId = State(initialValue: initialDraft.providerTargetId ?? host.providerTargets.first?.id ?? "")
         _remoteHost = State(initialValue: initialDraft.mainRemoteHost)
         _mainLocalPortText = State(initialValue: String(initialDraft.mainLocalPort))
         _mainRemotePortText = State(initialValue: String(initialDraft.mainRemotePort))
@@ -2452,22 +2534,33 @@ private struct RegistryRuleEditorSheet: View {
                     RegistryEditorSection("规则信息") {
                         RegistryLabeledField("名称", text: $serviceName)
                         RegistryLabeledField("别名", text: $alias, prompt: "可选")
-                        RegistryTargetPicker(
-                            selection: $providerTargetId,
-                            targets: host.providerTargets
-                        )
+                        RegistryAccessModePicker(selection: $accessMode)
+                        if accessMode == .forwarded {
+                            RegistryTargetPicker(
+                                selection: $providerTargetId,
+                                targets: host.providerTargets
+                            )
+                            if host.providerTargets.isEmpty {
+                                RegistryInlineNotice(message: "本地转发需要先在主机设置里新增 SSH provider target；直达应用和本机应用不需要链路。")
+                            }
+                        } else {
+                            RegistryModeHint(accessMode: accessMode)
+                        }
                         RegistryLabeledField("类型", text: $kind, prompt: "可选")
                         RegistryLabeledField("标签", text: $tagsText, prompt: "用逗号分隔")
                     }
 
-                    RegistryEditorSection("端口映射") {
-                        RegistryLabeledField("远端主机", text: $remoteHost)
-                        RegistryLabeledField("本地主端口", text: $mainLocalPortText)
-                        RegistryLabeledField("远端主端口", text: $mainRemotePortText)
+                    RegistryEditorSection(portSectionTitle) {
+                        RegistryLabeledField(remoteHostLabel, text: $remoteHost)
+                        if accessMode != .direct {
+                            RegistryLabeledField(localPortLabel, text: $mainLocalPortText)
+                        }
+                        RegistryLabeledField(remotePortLabel, text: $mainRemotePortText)
 
                         ForEach(Array(secondaryPorts.indices), id: \.self) { index in
                             RegistrySecondaryPortEditor(
                                 title: "附属端口 \(index + 1)",
+                                accessMode: accessMode,
                                 mapping: $secondaryPorts[index]
                             ) {
                                 secondaryPorts.remove(at: index)
@@ -2527,11 +2620,12 @@ private struct RegistryRuleEditorSheet: View {
                     hostId: host.id,
                     serviceName: serviceName,
                     alias: normalized(alias),
-                    providerTargetId: providerTargetId,
+                    accessMode: accessMode,
+                    providerTargetId: accessMode == .forwarded ? providerTargetId : nil,
                     remoteHost: remoteHost,
-                    mainLocalPort: try parseRequiredPort(mainLocalPortText, label: "本地主端口"),
+                    mainLocalPort: accessMode == .direct ? 0 : try parseRequiredPort(mainLocalPortText, label: localPortLabel),
                     mainRemoteHost: remoteHost,
-                    mainRemotePort: try parseRequiredPort(mainRemotePortText, label: "远端主端口"),
+                    mainRemotePort: try parseRequiredPort(mainRemotePortText, label: remotePortLabel),
                     secondaryPorts: secondaryPorts,
                     kind: normalized(kind),
                     tags: tags(from: tagsText),
@@ -2546,6 +2640,85 @@ private struct RegistryRuleEditorSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var portSectionTitle: String {
+        switch accessMode {
+        case .forwarded:
+            "端口映射"
+        case .direct:
+            "直达入口"
+        case .local:
+            "本机入口"
+        }
+    }
+
+    private var remoteHostLabel: String {
+        switch accessMode {
+        case .forwarded:
+            "远端主机"
+        case .direct:
+            "访问主机"
+        case .local:
+            "本机地址"
+        }
+    }
+
+    private var localPortLabel: String {
+        switch accessMode {
+        case .forwarded:
+            "本地主端口"
+        case .direct:
+            "本地端口"
+        case .local:
+            "本机端口"
+        }
+    }
+
+    private var remotePortLabel: String {
+        switch accessMode {
+        case .forwarded:
+            "远端主端口"
+        case .direct:
+            "应用端口"
+        case .local:
+            "服务端口"
+        }
+    }
+}
+
+private struct RegistryAccessModePicker: View {
+    @Binding var selection: RegistryRuleAccessMode
+
+    var body: some View {
+        Picker("访问方式", selection: $selection) {
+            ForEach(RegistryRuleAccessMode.registryOptions, id: \.self) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+    }
+}
+
+private struct RegistryModeHint: View {
+    let accessMode: RegistryRuleAccessMode
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: accessMode.symbolName)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(accessMode.editorHint)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RelayDockColor.controlBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -2591,6 +2764,7 @@ private struct RegistryProviderTargetDraftEditor: View {
 
 private struct RegistrySecondaryPortEditor: View {
     let title: String
+    let accessMode: RegistryRuleAccessMode
     @Binding var mapping: RegistryPortMapping
     let onRemove: () -> Void
 
@@ -2610,18 +2784,30 @@ private struct RegistrySecondaryPortEditor: View {
                     .buttonStyle(.borderless)
             }
 
-            RegistryLabeledField("本地端口", text: Binding(
-                get: { mapping.localPort == 0 ? "" : String(mapping.localPort) },
-                set: { mapping.localPort = UInt16($0) ?? 0 }
-            ))
-            RegistryLabeledField("远端主机", text: Binding(
-                get: { mapping.remoteHost },
-                set: { mapping.remoteHost = $0 }
-            ))
-            RegistryLabeledField("远端端口", text: Binding(
+            if accessMode != .direct {
+                RegistryLabeledField(accessMode.secondaryLocalPortLabel, text: Binding(
+                    get: { mapping.localPort == 0 ? "" : String(mapping.localPort) },
+                    set: { mapping.localPort = UInt16($0) ?? 0 }
+                ))
+            }
+            if accessMode != .local {
+                RegistryLabeledField(accessMode.secondaryRemoteHostLabel, text: Binding(
+                    get: { mapping.remoteHost },
+                    set: { mapping.remoteHost = $0 }
+                ))
+            }
+            RegistryLabeledField(accessMode.secondaryRemotePortLabel, text: Binding(
                 get: { mapping.remotePort == 0 ? "" : String(mapping.remotePort) },
                 set: { mapping.remotePort = UInt16($0) ?? 0 }
             ))
+            .onAppear {
+                if accessMode == .direct {
+                    mapping.localPort = 0
+                }
+                if accessMode == .local, mapping.remoteHost.isEmpty {
+                    mapping.remoteHost = "127.0.0.1"
+                }
+            }
         }
         .padding(12)
         .background {
@@ -3072,6 +3258,7 @@ private struct RegistryImportedRuleDraftState: Identifiable, Equatable {
             hostId: hostId,
             serviceName: trimmedName,
             alias: normalized(alias),
+            accessMode: .forwarded,
             providerTargetId: providerTargetId,
             remoteHost: trimmedRemoteHost,
             mainLocalPort: try parseRequiredPort(localPortText, label: "本地端口"),
@@ -3421,7 +3608,7 @@ private extension RegistryHostDraft {
             osHint: .macos,
             osDistro: nil,
             status: .unknown,
-            providerTargets: [.blank]
+            providerTargets: []
         )
     }
 }
@@ -3439,12 +3626,59 @@ private extension RegistryProviderTargetDraft {
 }
 
 private extension RegistryRule {
+    var registryStatusTitle: String {
+        switch accessMode {
+        case .forwarded:
+            runtimeState.title
+        case .direct, .local:
+            "已登记"
+        }
+    }
+
+    var registryStatusColor: Color {
+        switch accessMode {
+        case .forwarded:
+            runtimeState.color
+        case .direct:
+            .blue
+        case .local:
+            .green
+        }
+    }
+
+    var entryURL: URL? {
+        let host = alias.isEmpty ? remoteHost : alias
+        guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let port: UInt16 = {
+            switch accessMode {
+            case .forwarded, .local:
+                return mainLocalPort == 0 ? mainRemotePort : mainLocalPort
+            case .direct:
+                return mainRemotePort == 0 ? mainLocalPort : mainRemotePort
+            }
+        }()
+
+        guard port > 0 else {
+            return nil
+        }
+
+        let scheme = port == 443 ? "https" : "http"
+        let portSuffix = (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
+            ? ""
+            : ":\(port)"
+        return URL(string: "\(scheme)://\(host)\(portSuffix)/")
+    }
+
     func ruleDraft(hostId: String) -> RegistryRuleDraft {
         RegistryRuleDraft(
             id: id,
             hostId: hostId,
             serviceName: serviceName,
             alias: alias.isEmpty ? nil : alias,
+            accessMode: accessMode,
             providerTargetId: providerTargetId,
             remoteHost: remoteHost,
             mainLocalPort: mainLocalPort,
@@ -3458,16 +3692,121 @@ private extension RegistryRule {
     }
 }
 
+private extension RegistryRuleAccessMode {
+    static var registryOptions: [RegistryRuleAccessMode] {
+        [.forwarded, .direct, .local]
+    }
+
+    var title: String {
+        switch self {
+        case .forwarded:
+            "本地转发"
+        case .direct:
+            "直达应用"
+        case .local:
+            "本机应用"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .forwarded:
+            "arrow.left.arrow.right"
+        case .direct:
+            "point.3.connected.trianglepath.dotted"
+        case .local:
+            "desktopcomputer"
+        }
+    }
+
+    var editorHint: String {
+        switch self {
+        case .forwarded:
+            "通过 SSH/provider 建立本地端口入口，参与启动、恢复和端口冲突处理。"
+        case .direct:
+            "远程地址已经可直接访问，不创建本地端口，也不进入隧道启动流程。"
+        case .local:
+            "登记本机已有服务入口，可用于打开和后续端口诊断。"
+        }
+    }
+
+    var portPrefix: String {
+        switch self {
+        case .forwarded:
+            "本地"
+        case .direct:
+            "直达"
+        case .local:
+            "本机"
+        }
+    }
+
+    var providerLabelPrefix: String {
+        switch self {
+        case .forwarded:
+            "链路"
+        case .direct:
+            "入口"
+        case .local:
+            "来源"
+        }
+    }
+
+    var entryActionTitle: String {
+        switch self {
+        case .forwarded:
+            "映射"
+        case .direct, .local:
+            "入口"
+        }
+    }
+
+    var secondaryLocalPortLabel: String {
+        switch self {
+        case .forwarded:
+            "本地端口"
+        case .direct:
+            "本地端口"
+        case .local:
+            "本机端口"
+        }
+    }
+
+    var secondaryRemoteHostLabel: String {
+        switch self {
+        case .forwarded:
+            "远端主机"
+        case .direct:
+            "访问主机"
+        case .local:
+            "本机地址"
+        }
+    }
+
+    var secondaryRemotePortLabel: String {
+        switch self {
+        case .forwarded:
+            "远端端口"
+        case .direct:
+            "应用端口"
+        case .local:
+            "服务端口"
+        }
+    }
+}
+
 private extension RegistryRuleDraft {
     static func blank(hostId: String, providerTargetId: String?) -> RegistryRuleDraft {
-        RegistryRuleDraft(
+        let accessMode: RegistryRuleAccessMode = providerTargetId == nil ? .direct : .forwarded
+        return RegistryRuleDraft(
             id: nil,
             hostId: hostId,
             serviceName: "",
             alias: nil,
-            providerTargetId: providerTargetId ?? "",
+            accessMode: accessMode,
+            providerTargetId: providerTargetId,
             remoteHost: "127.0.0.1",
-            mainLocalPort: 3000,
+            mainLocalPort: accessMode == .direct ? 0 : 3000,
             mainRemoteHost: "127.0.0.1",
             mainRemotePort: 3000,
             secondaryPorts: [],

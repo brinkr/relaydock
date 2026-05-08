@@ -99,7 +99,10 @@ pub struct Rule {
     pub host_id: HostId,
     pub name: String,
     pub alias: Option<LocalAlias>,
-    pub provider_target_id: ProviderTargetId,
+    #[serde(default)]
+    pub access_mode: RuleAccessMode,
+    #[serde(default)]
+    pub provider_target_id: Option<ProviderTargetId>,
     pub remote_host: String,
     pub main_port: PortMapping,
     pub secondary_ports: Vec<PortMapping>,
@@ -110,6 +113,15 @@ pub struct Rule {
 }
 
 pub type Service = Rule;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleAccessMode {
+    #[default]
+    Forwarded,
+    Direct,
+    Local,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Preset {

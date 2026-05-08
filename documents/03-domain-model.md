@@ -1,6 +1,6 @@
 # RelayDock 领域模型
 
-更新时间：2026-04-22
+更新时间：2026-05-08
 
 ## 1. 建模原则
 
@@ -78,6 +78,7 @@ RelayDock 的建模遵循以下原则：
 - `host_id`
 - `name`
 - `alias`
+- `access_mode`
 - `provider_target_id`
 - `remote_host`
 - `main_port`
@@ -92,6 +93,19 @@ RelayDock 的建模遵循以下原则：
 - `Rule` 面向的是用户要访问的能力，不是底层命令本身
 - 一个服务可以只映射一个端口，也可以包含一个主端口和多个附属端口
 - 多端口只是这个服务的属性，不应反客为主变成产品主对象
+
+`access_mode` 用来区分服务的访问方式：
+
+- `forwarded`：本地转发服务。必须有 `provider_target_id`，通过 provider 建立本地端口绑定，参与启动、停止、恢复、端口冲突和 `LocalPortOverride`。
+- `direct`：直达应用。远程/Tailscale/MagicDNS 地址已经可直接访问，不要求 `provider_target_id`，不创建本地端口绑定，也不进入隧道运行生命周期。
+- `local`：本机应用。本机已有服务入口，不要求 `provider_target_id`，可登记和打开，也可复用后续本机端口诊断能力，但不进入隧道启动路径。
+
+兼容规则：
+
+- 旧配置没有 `access_mode` 时按 `forwarded` 处理。
+- 只有 `forwarded` 规则要求 `provider_target_id`。
+- `direct` 规则的 `main_port.local_port` 应保持为 `0`，应用端口放在 `remote_port`；不要把直达服务误登记成本地端口声明。
+- `local` 规则使用 `main_port.local_port` 表达本机入口端口。
 
 ## 5. Preset
 
@@ -139,6 +153,7 @@ RelayDock 的建模遵循以下原则：
 
 - 运行页展示的是 `RuntimeInstance`
 - 不是 `Rule` 本身
+- 只有 `forwarded` 规则会产生隧道型 `RuntimeInstance`
 
 ## 7. RecoveryItem
 
@@ -228,4 +243,3 @@ RelayDock 的建模遵循以下原则：
 
 - 别名应可自动生成且允许手改
 - 唯一性由系统保证
-

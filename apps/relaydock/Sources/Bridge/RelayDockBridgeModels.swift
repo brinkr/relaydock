@@ -161,7 +161,8 @@ struct RegistryRuleDraft: Codable, Equatable {
     var hostId: String
     var serviceName: String
     var alias: String?
-    var providerTargetId: String
+    var accessMode: RegistryRuleAccessMode
+    var providerTargetId: String?
     var remoteHost: String
     var mainLocalPort: UInt16
     var mainRemoteHost: String
@@ -504,6 +505,12 @@ enum RegistryProviderKind: String, Codable {
     case tailscale
 }
 
+enum RegistryRuleAccessMode: String, Codable {
+    case forwarded
+    case direct
+    case local
+}
+
 struct RegistryPreset: Codable, Equatable, Identifiable {
     var id: String
     var name: String
@@ -520,10 +527,11 @@ struct RegistryRule: Codable, Equatable, Identifiable {
     var id: String
     var serviceName: String
     var alias: String
+    var accessMode: RegistryRuleAccessMode
     var providerLabel: String
     var portSummary: String
     var runtimeState: RegistryRuleRuntimeState
-    var providerTargetId: String
+    var providerTargetId: String?
     var remoteHost: String
     var mainLocalPort: UInt16
     var mainRemoteHost: String

@@ -145,6 +145,8 @@ struct RelayDockVisualQAFixtures {
                 rules: [
                     registryRule("relay-admin", "RelayDock Console", "ssh-18317.localhost", "Tailscale · 家里", "18317", .running, "target-home-tailscale"),
                     registryRule("fastapi-backend", "FastAPI Backend", "api.home.localhost", "Tailscale · 家里", "8000", .running, "target-home-tailscale"),
+                    registryRule("home-assistant", "Home Assistant", "homeassistant.tailnet.ts.net", "直达应用", "homeassistant.tailnet.ts.net:8123", .stopped, nil, accessMode: .direct, remoteHost: "homeassistant.tailnet.ts.net"),
+                    registryRule("local-vite", "Local Vite", "localhost", "本机应用", "本机 5173", .stopped, nil, accessMode: .local, remoteHost: "127.0.0.1"),
                     registryRule("postgres-main", "PostgreSQL Main", "pg.home.localhost", "SSH · 家庭宽带", "5432", .recoverable, "target-home-ssh"),
                     registryRule("redis-cache", "Redis Cache", "redis.home.localhost", "SSH · 家庭宽带", "6379", .running, "target-home-ssh"),
                     registryRule("go-microservice", "Go Microservice", "go.home.localhost", "SSH · 家庭宽带", "8081", .error, "target-home-ssh"),
@@ -365,21 +367,28 @@ struct RelayDockVisualQAFixtures {
         _ providerLabel: String,
         _ portSummary: String,
         _ runtimeState: RegistryRuleRuntimeState,
-        _ providerTargetId: String
+        _ providerTargetId: String?,
+        accessMode: RegistryRuleAccessMode = .forwarded,
+        remoteHost: String = "127.0.0.1"
     ) -> RegistryRule {
-        let mainPort = UInt16(portSummary.split(separator: " ").first ?? "") ?? 3000
+        let mainPort = portSummary
+            .split(whereSeparator: { !$0.isNumber })
+            .compactMap { UInt16($0) }
+            .first ?? 3000
+        let mainLocalPort: UInt16 = accessMode == .direct ? 0 : mainPort
 
         return RegistryRule(
             id: "rule-\(slug)",
             serviceName: serviceName,
             alias: alias,
+            accessMode: accessMode,
             providerLabel: providerLabel,
             portSummary: portSummary,
             runtimeState: runtimeState,
             providerTargetId: providerTargetId,
-            remoteHost: "127.0.0.1",
-            mainLocalPort: mainPort,
-            mainRemoteHost: "127.0.0.1",
+            remoteHost: remoteHost,
+            mainLocalPort: mainLocalPort,
+            mainRemoteHost: remoteHost,
             mainRemotePort: mainPort,
             secondaryPorts: [],
             kind: nil,

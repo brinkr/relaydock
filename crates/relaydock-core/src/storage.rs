@@ -1,4 +1,4 @@
-use crate::domain::{Host, Preset, Rule};
+use crate::domain::{Host, Preset, Rule, RuleAccessMode};
 use crate::runtime::{
     LocalPortOverride, ProviderProcessRecord, RecoveryItem, RuntimeEvent, RuntimeInstance,
 };
@@ -381,25 +381,36 @@ pub fn validate_configuration(
             });
         }
 
-        let provider_target_host_id = provider_target_hosts
-            .iter()
-            .find_map(|(target_id, host_id)| {
-                (*target_id == rule.provider_target_id.as_str()).then_some(*host_id)
-            })
-            .ok_or_else(|| StorageValidationError::MissingReference {
+        if rule.access_mode == RuleAccessMode::Forwarded && rule.provider_target_id.is_none() {
+            return Err(StorageValidationError::MissingReference {
                 entity: "rule",
                 id: rule.id.to_string(),
                 field: "provider_target_id",
-                referenced_id: rule.provider_target_id.to_string(),
-            })?;
-
-        if provider_target_host_id != rule.host_id.as_str() {
-            return Err(StorageValidationError::CrossHostProviderTarget {
-                rule_id: rule.id.to_string(),
-                host_id: rule.host_id.to_string(),
-                provider_target_id: rule.provider_target_id.to_string(),
-                provider_target_host_id: provider_target_host_id.to_string(),
+                referenced_id: "".to_string(),
             });
+        }
+
+        if let Some(provider_target_id) = &rule.provider_target_id {
+            let provider_target_host_id = provider_target_hosts
+                .iter()
+                .find_map(|(target_id, host_id)| {
+                    (*target_id == provider_target_id.as_str()).then_some(*host_id)
+                })
+                .ok_or_else(|| StorageValidationError::MissingReference {
+                    entity: "rule",
+                    id: rule.id.to_string(),
+                    field: "provider_target_id",
+                    referenced_id: provider_target_id.to_string(),
+                })?;
+
+            if provider_target_host_id != rule.host_id.as_str() {
+                return Err(StorageValidationError::CrossHostProviderTarget {
+                    rule_id: rule.id.to_string(),
+                    host_id: rule.host_id.to_string(),
+                    provider_target_id: provider_target_id.to_string(),
+                    provider_target_host_id: provider_target_host_id.to_string(),
+                });
+            }
         }
 
         if let Some(alias) = &rule.alias {
@@ -586,7 +597,8 @@ mod tests {
     use super::*;
     use crate::domain::{
         HostId, HostStatusHint, LocalAlias, Metadata, OsFamily, PortMapping, PresetId, PresetItem,
-        ProviderTarget, ProviderTargetId, ProviderTargetType, RuleId, RuntimeInstanceId,
+        ProviderTarget, ProviderTargetId, ProviderTargetType, RuleAccessMode, RuleId,
+        RuntimeInstanceId,
     };
     use crate::ports::{PortOwnerType, PortProtocol, PortUsage};
     use crate::runtime::{
@@ -634,7 +646,8 @@ mod tests {
                     generated: true,
                     editable: true,
                 }),
-                provider_target_id: target.id,
+                access_mode: RuleAccessMode::Forwarded,
+                provider_target_id: Some(target.id),
                 remote_host: "127.0.0.1".to_string(),
                 main_port: PortMapping::new(3000, "127.0.0.1", 3000),
                 secondary_ports: Vec::new(),
@@ -833,7 +846,7 @@ mod tests {
                 meta: Metadata::new(),
             }],
         });
-        snapshot.rules[0].provider_target_id = ProviderTargetId::from("target-2");
+        snapshot.rules[0].provider_target_id = Some(ProviderTargetId::from("target-2"));
 
         let error = validate_configuration(&snapshot).expect_err("cross-host target is invalid");
 

@@ -1,0 +1,12 @@
+{"file": "documents/01-product-baseline.md", "reason": "Product baseline for tunnels, forwarding, and conflict diagnosis"}
+{"file": "documents/02-scope-and-non-goals.md", "reason": "Local port management boundary and product scope"}
+{"file": "documents/03-domain-model.md", "reason": "Host, ProviderTarget, Rule, LocalPortBinding model baseline"}
+{"file": "documents/06-provider-and-network-scenarios.md", "reason": "SSH/Tailscale provider and direct network scenarios"}
+{"file": "documents/07-port-management-foundation.md", "reason": "Local port conflict foundation retained for forwarded services"}
+{"file": ".trellis/spec/bridge/boundary-rules.md", "reason": "Bridge registry/runtime contracts"}
+{"file": ".trellis/spec/rust-core/domain-and-state.md", "reason": "Rust domain state ownership"}
+{"file": ".trellis/spec/rust-core/storage-and-diagnostics.md", "reason": "Storage validation and round-trip contracts"}
+{"file": ".trellis/spec/rust-core/provider-and-process.md", "reason": "OpenSSH provider boundaries"}
+{"file": ".trellis/spec/swift-shell/state-and-viewmodel-boundaries.md", "reason": "Swift state ownership boundaries"}
+{"file": ".trellis/spec/swift-shell/ui-patterns.md", "reason": "Registry and runtime UI action patterns"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer access-mode data flow"}

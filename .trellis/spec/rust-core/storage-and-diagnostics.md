@@ -47,6 +47,10 @@ store.save_recovery_collection(&RecoveryCollection { ... })
 - `ConfigurationSnapshot` stores saved `Host`, `Rule`, and `Preset` configuration.
 - `RuntimeSnapshot` stores running instances, provider process metadata for those instances, and session-scoped `LocalPortOverride` records.
 - `RecoveryCollection` stores interrupted-but-recoverable runtime items.
+- `Rule.access_mode` controls rule validation:
+  - `Forwarded` requires `provider_target_id` and valid local/remote ports.
+  - `Direct` may omit `provider_target_id`, requires a reachable host/alias plus application port, and keeps `main_port.local_port = 0`.
+  - `Local` may omit `provider_target_id`, requires a local service port, and does not imply provider lifecycle.
 - Sensitive credentials must not be stored in SQLite metadata. Store references such as Keychain refs instead.
 - Session-scoped local port overrides must not mutate saved `Rule.main_port` or `Rule.secondary_ports`.
 - Provider process metadata must reference an existing runtime instance and must remain limited to operational fields such as provider kind, pid, command summary, target label, and observation timestamps.
@@ -54,8 +58,10 @@ store.save_recovery_collection(&RecoveryCollection { ... })
 ### 4. Validation & Error Matrix
 
 - Duplicate host/rule/preset/runtime IDs -> validation error.
-- Rule references a missing host or provider target -> validation error.
+- Forwarded rule missing provider target -> validation error.
+- Any rule that does include a provider target must reference an existing target on the same host.
 - Rule references a provider target from another host -> validation error.
+- Direct/local rule without provider target is valid.
 - Provider target metadata includes credential-like keys (`password`, `private_key`, `secret`, `token`, `credential`) -> validation error.
 - Runtime override references a missing runtime instance -> validation error.
 - Provider process metadata references a missing runtime instance -> validation error.
@@ -67,7 +73,9 @@ store.save_recovery_collection(&RecoveryCollection { ... })
 - Good: runtime override changes `RuntimeInstance.local_bindings` and persists as `LocalPortOverride { persisted: false }`.
 - Good: runtime process metadata survives the one-command bridge sidecar so a later load/stop command can observe or terminate by pid.
 - Base: configuration snapshot round-trips without runtime state.
+- Base: direct/local registry rules round-trip in configuration but do not create run/recovery rows.
 - Bad: saving a provider target metadata field such as `password = "plain-text"`.
+- Bad: treating a direct Tailscale URL as a local port binding just because it has an application port.
 - Bad: treating a missing pid as connected just because a runtime instance remained in JSON storage.
 - Bad: treating a runtime instance without provider process metadata as controllable by a later sidecar invocation.
 
@@ -77,7 +85,8 @@ store.save_recovery_collection(&RecoveryCollection { ... })
 - Configuration snapshot round-trips.
 - Runtime snapshot round-trips with local port override while saved rule ports stay unchanged.
 - Recovery collection round-trips and supports clearing one item.
-- Validation rejects credential metadata, cross-host provider targets, missing runtime override owners, missing provider process owners, duplicate provider process records, and duplicate recovery items.
+- Validation rejects credential metadata, forwarded rules without provider target, cross-host provider targets, missing runtime override owners, missing provider process owners, duplicate provider process records, and duplicate recovery items.
+- Registry storage tests assert direct/local rules can be saved without provider target and are excluded from run/recovery projection.
 
 ### 7. Wrong vs Correct
 

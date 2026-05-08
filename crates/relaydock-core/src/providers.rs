@@ -544,7 +544,7 @@ fn validate_ssh_launch_inputs(
         .with_rule_context(rule, provider_target));
     }
 
-    if rule.provider_target_id != provider_target.id {
+    if rule.provider_target_id.as_ref() != Some(&provider_target.id) {
         return Err(ProviderError::invalid_target(
             "rule provider target does not match launch provider target",
         )
@@ -579,7 +579,7 @@ mod tests {
     use super::*;
     use crate::domain::{
         HostId, HostStatusHint, LocalAlias, Metadata, OsFamily, PortMapping, ProviderTargetId,
-        RuleId,
+        RuleAccessMode, RuleId,
     };
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -679,7 +679,8 @@ mod tests {
                 generated: true,
                 editable: true,
             }),
-            provider_target_id: ProviderTargetId::from("target-1"),
+            access_mode: RuleAccessMode::Forwarded,
+            provider_target_id: Some(ProviderTargetId::from("target-1")),
             remote_host: "127.0.0.1".to_string(),
             main_port: PortMapping::new(3000, "127.0.0.1", 3000),
             secondary_ports: vec![PortMapping::new(5432, "127.0.0.1", 5432)],
